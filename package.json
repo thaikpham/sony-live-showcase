@@ -1,0 +1,38 @@
+{
+  "name": "sony-livestream-showcase",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "check": "pnpm run typecheck && pnpm build",
+    "dev": "vite",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium",
+    "preview": "vite preview --host 127.0.0.1 --port 4174",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "pnpm run check"
+  },
+  "dependencies": {
+    "lucide-react": "0.487.0",
+    "motion": "12.23.24",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.0",
+    "@tailwindcss/vite": "4.1.12",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "19",
+    "@vitejs/plugin-react": "4.7.0",
+    "playwright": "^1.59.0",
+    "tailwindcss": "4.1.12",
+    "typescript": "^6.0.2",
+    "vite": "6.3.5"
+  },
+  "pnpm": {
+    "overrides": {
+      "vite": "6.3.5"
+    }
+  }
+}

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sony Livestream Showcase</title>
+    <meta
+      name="description"
+      content="Standalone Sony livestream showcase environment with live mockup, camera source picker, and tutorial carousel."
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎥</text></svg>"
+    />
+    <link rel="preload" href="/src/styles/index.css" as="style" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700;800&display=swap" as="style" />
+    <script>
+      document.documentElement.classList.add("lcp-pending");
+    </script>
+    <style>
+      :root {
+        --gradient-primary: #050608;
+        --gradient-secondary: #0f172a;
+        --gradient-accent: #1d4ed8;
+      }
+
+      html,
+      body,
+      #root {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      body {
+        overflow: hidden;
+        font-family: "Noto Sans", sans-serif;
+        background: var(--gradient-primary);
+        color: #fff;
+      }
+
+      .gradient-bg {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        background: linear-gradient(
+          135deg,
+          var(--gradient-primary) 0%,
+          var(--gradient-secondary) 50%,
+          var(--gradient-accent) 100%
+        );
+      }
+
+      .loading-shell {
+        position: relative;
+        z-index: 1;
+        min-height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+      }
+
+      .loading-panel {
+        width: min(560px, 100%);
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .loading-skeleton {
+        height: 1rem;
+        border-radius: 9999px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.08) 25%,
+          rgba(255, 255, 255, 0.2) 50%,
+          rgba(255, 255, 255, 0.08) 75%
+        );
+        background-size: 200% 100%;
+        animation: loading-skeleton 1.5s infinite;
+      }
+
+      .loading-skeleton.title {
+        height: 2.25rem;
+        width: 70%;
+      }
+
+      @keyframes loading-skeleton {
+        0% {
+          background-position: 200% 0;
+        }
+
+        100% {
+          background-position: -200% 0;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="root">
+      <div class="gradient-bg"></div>
+      <div class="loading-shell">
+        <div class="loading-panel">
+          <div class="loading-skeleton title"></div>
+          <div class="loading-skeleton"></div>
+          <div class="loading-skeleton"></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      const markLcpReady = () => {
+        document.documentElement.classList.remove("lcp-pending");
+        document.documentElement.classList.add("lcp-ready");
+      };
+
+      if ("PerformanceObserver" in window) {
+        try {
+          const observer = new PerformanceObserver((entryList) => {
+            const entries = entryList.getEntries();
+            if (entries.length > 0) {
+              markLcpReady();
+              observer.disconnect();
+            }
+          });
+
+          observer.observe({ type: "largest-contentful-paint", buffered: true });
+
+          setTimeout(() => {
+            markLcpReady();
+            observer.disconnect();
+          }, 2200);
+        } catch {
+          markLcpReady();
+        }
+      } else {
+        markLcpReady();
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
