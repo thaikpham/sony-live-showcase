@@ -42,6 +42,23 @@ test.describe("Livestream Showcase standalone app", () => {
     }
   });
 
+  test("keeps comments and gifts streaming aggressively", async ({ page }) => {
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    const giftCount = page.getByTestId("gift-count");
+    const initialGiftValue = Number(await giftCount.getAttribute("data-count"));
+
+    await expect(page.getByTestId("live-comment-item")).toHaveCount(6, {
+      timeout: 6000,
+    });
+
+    await expect
+      .poll(async () => Number(await giftCount.getAttribute("data-count")), {
+        timeout: 4000,
+      })
+      .toBeGreaterThan(initialGiftValue);
+  });
+
   test("returns to the main livestream SOP with Escape", async ({ page }) => {
     await page.route(`${mainAppOrigin}/**`, async (route) => {
       await route.fulfill({

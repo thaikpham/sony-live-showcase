@@ -138,6 +138,8 @@ const COMMENT_POOL: FeedComment[] = [
 ];
 
 const GIFT_EMOJIS = ["🎁", "🌹", "💎", "🏆", "🔥", "🚀", "💐", "⭐"];
+const INITIAL_VISIBLE_FEED_COMMENTS = 4;
+const MAX_VISIBLE_FEED_COMMENTS = 6;
 const CAMERA_BASE_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 1080 },
   height: { ideal: 1920 },
@@ -928,7 +930,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
 
 // ─── Phone Mockup ──────────────────────────────────────────────────────────────
 function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal" | "video" }) {
-  const commentIndexRef = useRef<number>(3);
+  const commentIndexRef = useRef<number>(INITIAL_VISIBLE_FEED_COMMENTS);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const selectedDeviceIdRef = useRef<string | null>(null);
@@ -936,7 +938,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   const [gifts, setGifts] = useState<GiftParticle[]>([]);
   const [compliments, setCompliments] = useState<ComplimentBubble[]>([]);
   const [feedComments, setFeedComments] = useState<FeedComment[]>(
-    () => COMMENT_POOL.slice(0, 3).map((c, i) => ({ ...c, id: i }))
+    () => COMMENT_POOL.slice(0, INITIAL_VISIBLE_FEED_COMMENTS).map((c, i) => ({ ...c, id: i }))
   );
   const [viewerCount, setViewerCount] = useState(1847);
   const [followCount, setFollowCount] = useState(12840);
@@ -1126,6 +1128,27 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
     setTimeout(() => setGifts(prev => prev.filter(g => g.id !== id)), 3200);
   }, []);
 
+  const appendNextFeedComment = useCallback(() => {
+    const idx = commentIndexRef.current;
+    commentIndexRef.current = idx + 1;
+    const next = COMMENT_POOL[idx % COMMENT_POOL.length];
+    const id = Date.now() * 100 + Math.floor(Math.random() * 100);
+    setFeedComments(prev => [...prev, { ...next, id }].slice(-MAX_VISIBLE_FEED_COMMENTS));
+  }, []);
+
+  const spawnGiftBurst = useCallback(() => {
+    const burstSize = 2 + Math.floor(Math.random() * 3);
+    const burstSpacingMs = 55 + Math.floor(Math.random() * 55);
+
+    for (let i = 0; i < burstSize; i += 1) {
+      window.setTimeout(() => {
+        spawnGift();
+      }, i * burstSpacingMs);
+    }
+
+    setGiftCount(prev => prev + burstSize + Math.floor(Math.random() * 4) + 1);
+  }, [spawnGift]);
+
   // Auto-spawn hearts
   useEffect(() => {
     if (isVideoPerformanceMode) return;
@@ -1175,33 +1198,66 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
 
   // Gift stream + count drift up
   useEffect(() => {
-    if (isVideoPerformanceMode) return;
-    const t = setInterval(() => {
-      spawnGift();
-      setGiftCount(prev => prev + Math.floor(Math.random() * 3) + 1);
-    }, 1400);
-    return () => clearInterval(t);
-  }, [isVideoPerformanceMode, spawnGift]);
+    let timeoutId = 0;
+    let cancelled = false;
+
+    const queueNextBurst = () => {
+      timeoutId = window.setTimeout(() => {
+        spawnGiftBurst();
+        if (Math.random() > 0.55) {
+          window.setTimeout(() => {
+            spawnGift();
+            setGiftCount(prev => prev + 1);
+          }, 90 + Math.floor(Math.random() * 90));
+        }
+
+        if (!cancelled) {
+          queueNextBurst();
+        }
+      }, 520 + Math.floor(Math.random() * 360));
+    };
+
+    queueNextBurst();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [spawnGift, spawnGiftBurst]);
 
   // Rotating chat comments praising Sony image quality
   useEffect(() => {
-    if (isVideoPerformanceMode) return;
-    const t = setInterval(() => {
-      const idx = commentIndexRef.current;
-      commentIndexRef.current = idx + 1;
-      const next = COMMENT_POOL[idx % COMMENT_POOL.length];
-      const id = Date.now() * 100 + Math.floor(Math.random() * 100);
-      setFeedComments(prev => [...prev, { ...next, id }].slice(-4));
-    }, 1800);
-    return () => clearInterval(t);
-  }, [isVideoPerformanceMode]);
+    let timeoutId = 0;
+    let cancelled = false;
+
+    const queueNextComment = () => {
+      timeoutId = window.setTimeout(() => {
+        appendNextFeedComment();
+
+        if (Math.random() > 0.65) {
+          window.setTimeout(() => {
+            appendNextFeedComment();
+          }, 180 + Math.floor(Math.random() * 180));
+        }
+
+        if (!cancelled) {
+          queueNextComment();
+        }
+      }, 820 + Math.floor(Math.random() * 520));
+    };
+
+    queueNextComment();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [appendNextFeedComment]);
 
   useEffect(() => {
     if (!isVideoPerformanceMode) return;
     setHearts([]);
-    setGifts([]);
     setCompliments([]);
-    setFeedComments(prev => prev.slice(-2));
   }, [isVideoPerformanceMode]);
 
   // Hidden control panel toggle (Ctrl/Cmd only)
@@ -1640,12 +1696,13 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
               <motion.div
                 key={comment.id}
                 layout
-              className="flex items-center gap-2"
-              initial={{ opacity:0, x:-16, y:10 }}
-              animate={{ opacity:1, x:0, y:0 }}
-              exit={{ opacity:0, x:-10, scale:0.95 }}
-              transition={{ duration:0.28 }}
-            >
+                data-testid="live-comment-item"
+                className="flex items-center gap-2"
+                initial={{ opacity:0, x:-16, y:10 }}
+                animate={{ opacity:1, x:0, y:0 }}
+                exit={{ opacity:0, x:-10, scale:0.95 }}
+                transition={{ duration:0.28 }}
+              >
                 <div className="relative flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/20 backdrop-blur-sm">
                   <img
                     src={comment.avatar}
@@ -1710,6 +1767,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
             </motion.button>
             <motion.span
               key={giftCount}
+              data-testid="gift-count"
+              data-count={giftCount}
               className="text-[10px] font-bold tabular-nums text-white drop-shadow-lg"
               initial={{ scale:1.5, color:"#fcd34d" }}
               animate={{ scale:1, color:"#ffffff" }}
