@@ -21,6 +21,8 @@ interface LiveRecLabel {
   lifeTime: number;
   blinkRate: number;
   phase: number;
+  driftX: number;
+  driftY: number;
 }
 
 interface LabelAnchor {
@@ -64,6 +66,10 @@ function hashNoise(seed: number) {
   return hashed - Math.floor(hashed);
 }
 
+function bandStrength(value: number, center: number, width: number) {
+  return 1 - clamp(Math.abs(value - center) / width, 0, 1);
+}
+
 function pickQualityProfile(width: number, height: number, reducedMotion: boolean, videoFocused: boolean): QualityProfile {
   const shortestEdge = Math.min(width, height);
   const isMobile = width < 768 || shortestEdge < 560;
@@ -75,7 +81,7 @@ function pickQualityProfile(width: number, height: number, reducedMotion: boolea
       dprCap: isMobile || isTablet ? 1.25 : 1.5,
       fps: 0,
       maxLabels: 0,
-      cellDensity: isMobile ? 0.2 : isTablet ? 0.225 : 0.24,
+      cellDensity: isMobile ? 0.22 : isTablet ? 0.24 : 0.26,
       cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
       cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
       glyphFontSize: isMobile ? 16 : isTablet ? 18 : 20,
@@ -96,21 +102,21 @@ function pickQualityProfile(width: number, height: number, reducedMotion: boolea
     name: isMobile ? "mobile" : isTablet ? "tablet" : "desktop",
     dprCap: isMobile || isTablet ? 1.25 : 1.5,
     fps: isMobile || shortestEdge < 720 ? 14 : videoFocused ? 18 : 24,
-    maxLabels: isMobile ? 10 : isTablet ? 16 : 24,
-    cellDensity: videoFocused ? (isMobile ? 0.18 : isTablet ? 0.2 : 0.22) : isMobile ? 0.22 : isTablet ? 0.245 : 0.27,
+    maxLabels: isMobile ? 12 : isTablet ? 20 : 30,
+    cellDensity: videoFocused ? (isMobile ? 0.2 : isTablet ? 0.22 : 0.24) : isMobile ? 0.24 : isTablet ? 0.27 : 0.3,
     cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
     cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
     glyphFontSize: isMobile ? 16 : isTablet ? 18 : 20,
     labelFontSize: isMobile ? 24 : isTablet ? 26 : 28,
-    spawnMinMs: videoFocused ? 520 : isMobile ? 440 : 240,
-    spawnMaxMs: videoFocused ? 980 : isMobile ? 860 : 520,
-    labelAlphaMin: videoFocused ? 0.05 : 0.06,
-    labelAlphaMax: videoFocused ? 0.14 : 0.18,
+    spawnMinMs: videoFocused ? 280 : isMobile ? 220 : 140,
+    spawnMaxMs: videoFocused ? 620 : isMobile ? 520 : 340,
+    labelAlphaMin: videoFocused ? 0.14 : 0.18,
+    labelAlphaMax: videoFocused ? 0.28 : 0.36,
     motionEnabled: true,
-    shadowBlur: videoFocused ? 5 : 7,
+    shadowBlur: videoFocused ? 8 : 10,
     spacingX: isMobile ? 124 : isTablet ? 146 : 172,
     spacingY: isMobile ? 76 : isTablet ? 88 : 100,
-    initialFillRatio: videoFocused ? 0.64 : 0.78,
+    initialFillRatio: videoFocused ? 0.74 : 0.88,
   };
 }
 
@@ -125,14 +131,15 @@ function buildStaticGlyphs(width: number, height: number, profile: QualityProfil
       const chance = hashNoise(seed);
       const rawX = column * profile.cellWidth + hashNoise(seed * 1.41) * profile.cellWidth * 0.72;
       const rawY = row * profile.cellHeight + hashNoise(seed * 1.93) * profile.cellHeight * 0.86;
+      const normalizedX = rawX / width;
       const distX = Math.abs(rawX - width / 2) / (width / 2);
       const distY = Math.abs(rawY - height / 2) / (height / 2);
-      const edgeX = clamp(distX, 0, 1);
       const edgeY = clamp(distY, 0, 1);
-      const horizontalEdgeBias = Math.pow(edgeX, 1.65);
-      const verticalFeather = 0.82 + edgeY * 0.18;
-      const centerSuppression = 0.12 + horizontalEdgeBias * 1.22;
-      const density = profile.cellDensity * centerSuppression * verticalFeather;
+      const leftBand = bandStrength(normalizedX, 0.09, 0.18);
+      const rightBand = bandStrength(normalizedX, 0.91, 0.18);
+      const sideBand = Math.max(leftBand, rightBand);
+      const verticalFeather = 0.88 + edgeY * 0.12;
+      const density = profile.cellDensity * (0.06 + sideBand * 1.26) * verticalFeather;
 
       if (chance > density) continue;
 
@@ -149,8 +156,8 @@ function buildStaticGlyphs(width: number, height: number, profile: QualityProfil
       }
 
       const isWord = glyph.length > 1;
-      const baseAlpha = isWord ? 0.045 : 0.022;
-      const alpha = baseAlpha * (0.74 + hashNoise(seed * 2.61) * 0.36) * (0.4 + horizontalEdgeBias * 0.9);
+      const baseAlpha = isWord ? 0.082 : 0.04;
+      const alpha = baseAlpha * (0.76 + hashNoise(seed * 2.61) * 0.38) * (0.42 + sideBand * 0.94);
 
       glyphs.push({
         x: Math.round(rawX),
@@ -177,20 +184,22 @@ function buildLabelAnchors(width: number, height: number, profile: QualityProfil
       const seed = (column + 1) * 17.731 + (row + 1) * 53.127 + width * 0.009 + height * 0.021;
       const x = column * stepX + hashNoise(seed * 1.11) * stepX * 0.6;
       const y = row * stepY + hashNoise(seed * 1.67) * stepY * 0.5;
+      const normalizedX = x / width;
       const distX = Math.abs(x - width / 2) / (width / 2);
       const distY = Math.abs(y - height / 2) / (height / 2);
-      const edgeX = clamp(distX, 0, 1);
       const edgeY = clamp(distY, 0, 1);
-      const edgeWeight = clamp(Math.hypot(edgeX, edgeY), 0, 1);
-      const sideBand = clamp((edgeX - 0.08) / 0.92, 0, 1);
-      const centerPenalty = edgeX < 0.2 ? 0.08 : edgeX < 0.32 ? 0.28 : 1;
-      const verticalBand = 0.9 + edgeY * 0.1;
+      const edgeWeight = clamp(Math.hypot(distX, edgeY), 0, 1);
+      const leftBand = bandStrength(normalizedX, 0.08, 0.14);
+      const rightBand = bandStrength(normalizedX, 0.92, 0.14);
+      const sideBand = Math.max(leftBand, rightBand);
+      const centerPenalty = normalizedX > 0.34 && normalizedX < 0.66 ? 0.04 : normalizedX > 0.24 && normalizedX < 0.76 ? 0.24 : 1;
+      const verticalBand = 0.92 + edgeY * 0.08;
       const rhythmicWeight = 0.78 + ((row + column) % 3) * 0.12;
 
       anchors.push({
         x,
         y,
-        weight: (0.14 + sideBand * 1.35 + edgeWeight * 0.14) * verticalBand * centerPenalty * rhythmicWeight,
+        weight: (0.02 + sideBand * 1.9 + edgeWeight * 0.08) * verticalBand * centerPenalty * rhythmicWeight,
       });
     }
   }
@@ -216,7 +225,7 @@ function drawStaticLayer(
   for (const glyph of glyphs) {
     const fillAlpha = glyph.alpha;
     ctx.font = `${glyph.fontSize}px "Courier New", Courier, monospace`;
-    ctx.fillStyle = `rgba(196, 42, 42, ${fillAlpha})`;
+    ctx.fillStyle = `rgba(220, 58, 58, ${fillAlpha})`;
     ctx.fillText(glyph.glyph, glyph.x, glyph.y);
   }
 }
@@ -240,14 +249,18 @@ function drawLiveRecLabel(
   const blinkCurve = (Math.sin((now + label.phase) / label.blinkRate) + 1) / 2;
   const blinkAlpha = profile.labelAlphaMin + blinkCurve * (profile.labelAlphaMax - profile.labelAlphaMin);
   const finalAlpha = fade * blinkAlpha;
+  const progress = clamp(age / label.lifeTime, 0, 1);
+  const driftWave = Math.sin((now + label.phase * 0.6) / 620);
+  const drawX = label.x + label.driftX * progress + driftWave * 3.5;
+  const drawY = label.y + label.driftY * progress;
 
   ctx.font = `bold ${profile.labelFontSize}px "Courier New", Courier, monospace`;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.shadowBlur = profile.shadowBlur;
-  ctx.shadowColor = `rgba(188, 34, 34, ${finalAlpha * 0.4})`;
-  ctx.fillStyle = `rgba(188, 42, 42, ${finalAlpha})`;
-  ctx.fillText(label.text, label.x, label.y);
+  ctx.shadowColor = `rgba(220, 52, 52, ${finalAlpha * 0.62})`;
+  ctx.fillStyle = `rgba(232, 72, 72, ${finalAlpha})`;
+  ctx.fillText(label.text, drawX, drawY);
 
   return true;
 }
@@ -383,9 +396,11 @@ export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgrou
           y: anchor.y,
           text: anchor.text,
           bornAt: now - ageOffset,
-          lifeTime: 6200 + Math.random() * 4200,
-          blinkRate: 950 + Math.random() * 1250,
+          lifeTime: 3800 + Math.random() * 2200,
+          blinkRate: 720 + Math.random() * 760,
           phase: Math.random() * 6000,
+          driftX: (Math.random() - 0.5) * 20,
+          driftY: -12 - Math.random() * 22,
         });
       }
     };
@@ -401,9 +416,11 @@ export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgrou
         y: anchor.y,
         text: anchor.text,
         bornAt: now,
-        lifeTime: 6200 + Math.random() * 4200,
-        blinkRate: 950 + Math.random() * 1250,
+        lifeTime: 3800 + Math.random() * 2200,
+        blinkRate: 720 + Math.random() * 760,
         phase: Math.random() * 6000,
+        driftX: (Math.random() - 0.5) * 20,
+        driftY: -12 - Math.random() * 22,
       });
     };
 
