@@ -13,12 +13,18 @@ test.describe("Livestream Showcase standalone app", () => {
   test("loads the standalone showcase shell", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
 
+    await expect(page.getByTestId("ascii-rec-background")).toBeVisible();
+    await expect(page.getByTestId("ascii-rec-canvas")).toBeVisible();
+    await expect(page.getByTestId("ascii-rec-scanlines")).toBeVisible();
+    await expect(page.getByTestId("ascii-rec-vignette")).toBeVisible();
     await expect(page.getByRole("button", { name: "Go to reason 11" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Next reason" })).toBeVisible();
   });
 
   test("renders YouTube slides 11-15 with a persistent player host", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
+
+    await expect(page.getByTestId("ascii-rec-background")).toBeVisible();
 
     for (const index of [11, 12, 13, 14, 15]) {
       const start = Date.now();
@@ -40,6 +46,15 @@ test.describe("Livestream Showcase standalone app", () => {
       const src = await iframe.getAttribute("src");
       console.log(`slide=${index} readyMs=${Date.now() - start} iframe=${src ? src.slice(0, 100) : "null"}`);
     }
+  });
+
+  test("renders the ASCII background in reduced-motion mode", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    await expect(page.getByTestId("ascii-rec-background")).toHaveAttribute("data-motion-mode", "reduced");
+    await expect(page.getByTestId("ascii-rec-canvas")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Next reason" })).toBeVisible();
   });
 
   test("keeps comments and gifts streaming aggressively", async ({ page }) => {

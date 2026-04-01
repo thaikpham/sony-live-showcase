@@ -1,0 +1,519 @@
+import { useEffect, useRef } from "react";
+
+interface AsciiRecBackgroundProps {
+  videoFocused: boolean;
+  className?: string;
+}
+
+interface StaticGlyph {
+  x: number;
+  y: number;
+  glyph: string;
+  alpha: number;
+  fontSize: number;
+}
+
+interface LiveRecLabel {
+  x: number;
+  y: number;
+  text: string;
+  bornAt: number;
+  lifeTime: number;
+  blinkRate: number;
+  phase: number;
+}
+
+interface LabelAnchor {
+  x: number;
+  y: number;
+  weight: number;
+}
+
+interface QualityProfile {
+  name: "mobile" | "tablet" | "desktop";
+  dprCap: number;
+  fps: number;
+  maxLabels: number;
+  cellDensity: number;
+  cellWidth: number;
+  cellHeight: number;
+  glyphFontSize: number;
+  labelFontSize: number;
+  spawnMinMs: number;
+  spawnMaxMs: number;
+  labelAlphaMin: number;
+  labelAlphaMax: number;
+  motionEnabled: boolean;
+  shadowBlur: number;
+  spacingX: number;
+  spacingY: number;
+  initialFillRatio: number;
+}
+
+const BACKGROUND_COLOR = "#050608";
+const ASCII_MICRO_GLYPHS = [".", ":", "+", "|", "/", "\\", "-", "=", "L", "I", "V", "E", "S", "O", "N", "Y"];
+const ASCII_WORD_GLYPHS = ["LIVE", "SONY", "STUDIO", "ON AIR"];
+const ASCII_LABEL_GLYPHS = ["LIVE", "SONY", "STUDIO", "ON AIR", "LIVE SONY", "SONY STUDIO", "STUDIO ON AIR"];
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function hashNoise(seed: number) {
+  const hashed = Math.sin(seed) * 43758.5453123;
+  return hashed - Math.floor(hashed);
+}
+
+function pickQualityProfile(width: number, height: number, reducedMotion: boolean, videoFocused: boolean): QualityProfile {
+  const shortestEdge = Math.min(width, height);
+  const isMobile = width < 768 || shortestEdge < 560;
+  const isTablet = !isMobile && width < 1180;
+
+  if (reducedMotion) {
+    return {
+      name: isMobile ? "mobile" : isTablet ? "tablet" : "desktop",
+      dprCap: isMobile || isTablet ? 1.25 : 1.5,
+      fps: 0,
+      maxLabels: 0,
+      cellDensity: isMobile ? 0.2 : isTablet ? 0.225 : 0.24,
+      cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
+      cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
+      glyphFontSize: isMobile ? 16 : isTablet ? 18 : 20,
+      labelFontSize: isMobile ? 24 : isTablet ? 26 : 28,
+      spawnMinMs: 0,
+      spawnMaxMs: 0,
+      labelAlphaMin: 0,
+      labelAlphaMax: 0,
+      motionEnabled: false,
+      shadowBlur: 0,
+      spacingX: isMobile ? 124 : isTablet ? 146 : 172,
+      spacingY: isMobile ? 76 : isTablet ? 88 : 100,
+      initialFillRatio: 0,
+    };
+  }
+
+  return {
+    name: isMobile ? "mobile" : isTablet ? "tablet" : "desktop",
+    dprCap: isMobile || isTablet ? 1.25 : 1.5,
+    fps: isMobile || shortestEdge < 720 ? 14 : videoFocused ? 18 : 24,
+    maxLabels: isMobile ? 10 : isTablet ? 16 : 24,
+    cellDensity: videoFocused ? (isMobile ? 0.18 : isTablet ? 0.2 : 0.22) : isMobile ? 0.22 : isTablet ? 0.245 : 0.27,
+    cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
+    cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
+    glyphFontSize: isMobile ? 16 : isTablet ? 18 : 20,
+    labelFontSize: isMobile ? 24 : isTablet ? 26 : 28,
+    spawnMinMs: videoFocused ? 520 : isMobile ? 440 : 240,
+    spawnMaxMs: videoFocused ? 980 : isMobile ? 860 : 520,
+    labelAlphaMin: videoFocused ? 0.05 : 0.06,
+    labelAlphaMax: videoFocused ? 0.14 : 0.18,
+    motionEnabled: true,
+    shadowBlur: videoFocused ? 5 : 7,
+    spacingX: isMobile ? 124 : isTablet ? 146 : 172,
+    spacingY: isMobile ? 76 : isTablet ? 88 : 100,
+    initialFillRatio: videoFocused ? 0.64 : 0.78,
+  };
+}
+
+function buildStaticGlyphs(width: number, height: number, profile: QualityProfile) {
+  const columns = Math.ceil(width / profile.cellWidth) + 1;
+  const rows = Math.ceil(height / profile.cellHeight) + 1;
+  const glyphs: StaticGlyph[] = [];
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const seed = (column + 1) * 12.9898 + (row + 1) * 78.233 + width * 0.017 + height * 0.013;
+      const chance = hashNoise(seed);
+      const rawX = column * profile.cellWidth + hashNoise(seed * 1.41) * profile.cellWidth * 0.72;
+      const rawY = row * profile.cellHeight + hashNoise(seed * 1.93) * profile.cellHeight * 0.86;
+      const distX = Math.abs(rawX - width / 2) / (width / 2);
+      const distY = Math.abs(rawY - height / 2) / (height / 2);
+      const edgeX = clamp(distX, 0, 1);
+      const edgeY = clamp(distY, 0, 1);
+      const horizontalEdgeBias = Math.pow(edgeX, 1.65);
+      const verticalFeather = 0.82 + edgeY * 0.18;
+      const centerSuppression = 0.12 + horizontalEdgeBias * 1.22;
+      const density = profile.cellDensity * centerSuppression * verticalFeather;
+
+      if (chance > density) continue;
+
+      const glyphNoise = hashNoise(seed * 2.17);
+      let glyph = ASCII_MICRO_GLYPHS[Math.floor(hashNoise(seed * 2.71) * ASCII_MICRO_GLYPHS.length)] ?? ".";
+      let fontSize = profile.glyphFontSize;
+
+      if (glyphNoise > 0.965) {
+        glyph = ASCII_WORD_GLYPHS[Math.floor(hashNoise(seed * 3.17) * ASCII_WORD_GLYPHS.length)] ?? "LIVE";
+        fontSize = profile.glyphFontSize * 0.98;
+      } else if (glyphNoise > 0.86) {
+        glyph = ASCII_WORD_GLYPHS[Math.floor(hashNoise(seed * 3.61) * ASCII_WORD_GLYPHS.length)] ?? "SONY";
+        fontSize = profile.glyphFontSize * 0.82;
+      }
+
+      const isWord = glyph.length > 1;
+      const baseAlpha = isWord ? 0.045 : 0.022;
+      const alpha = baseAlpha * (0.74 + hashNoise(seed * 2.61) * 0.36) * (0.4 + horizontalEdgeBias * 0.9);
+
+      glyphs.push({
+        x: Math.round(rawX),
+        y: Math.round(rawY),
+        glyph,
+        alpha,
+        fontSize,
+      });
+    }
+  }
+
+  return glyphs;
+}
+
+function buildLabelAnchors(width: number, height: number, profile: QualityProfile) {
+  const stepX = profile.spacingX;
+  const stepY = profile.spacingY;
+  const columns = Math.ceil(width / stepX) + 1;
+  const rows = Math.ceil(height / stepY) + 1;
+  const anchors: LabelAnchor[] = [];
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const seed = (column + 1) * 17.731 + (row + 1) * 53.127 + width * 0.009 + height * 0.021;
+      const x = column * stepX + hashNoise(seed * 1.11) * stepX * 0.6;
+      const y = row * stepY + hashNoise(seed * 1.67) * stepY * 0.5;
+      const distX = Math.abs(x - width / 2) / (width / 2);
+      const distY = Math.abs(y - height / 2) / (height / 2);
+      const edgeX = clamp(distX, 0, 1);
+      const edgeY = clamp(distY, 0, 1);
+      const edgeWeight = clamp(Math.hypot(edgeX, edgeY), 0, 1);
+      const sideBand = clamp((edgeX - 0.08) / 0.92, 0, 1);
+      const centerPenalty = edgeX < 0.2 ? 0.08 : edgeX < 0.32 ? 0.28 : 1;
+      const verticalBand = 0.9 + edgeY * 0.1;
+      const rhythmicWeight = 0.78 + ((row + column) % 3) * 0.12;
+
+      anchors.push({
+        x,
+        y,
+        weight: (0.14 + sideBand * 1.35 + edgeWeight * 0.14) * verticalBand * centerPenalty * rhythmicWeight,
+      });
+    }
+  }
+
+  return anchors;
+}
+
+function drawStaticLayer(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  profile: QualityProfile,
+  glyphs: StaticGlyph[],
+) {
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = BACKGROUND_COLOR;
+  ctx.fillRect(0, 0, width, height);
+  ctx.font = `${profile.glyphFontSize}px "Courier New", Courier, monospace`;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.shadowBlur = 0;
+
+  for (const glyph of glyphs) {
+    const fillAlpha = glyph.alpha;
+    ctx.font = `${glyph.fontSize}px "Courier New", Courier, monospace`;
+    ctx.fillStyle = `rgba(196, 42, 42, ${fillAlpha})`;
+    ctx.fillText(glyph.glyph, glyph.x, glyph.y);
+  }
+}
+
+function drawLiveRecLabel(
+  ctx: CanvasRenderingContext2D,
+  label: LiveRecLabel,
+  now: number,
+  profile: QualityProfile,
+) {
+  const age = now - label.bornAt;
+
+  if (age >= label.lifeTime) return false;
+
+  const fadeMs = 900;
+  let fade = 1;
+
+  if (age < fadeMs) fade = age / fadeMs;
+  if (age > label.lifeTime - fadeMs) fade = (label.lifeTime - age) / fadeMs;
+
+  const blinkCurve = (Math.sin((now + label.phase) / label.blinkRate) + 1) / 2;
+  const blinkAlpha = profile.labelAlphaMin + blinkCurve * (profile.labelAlphaMax - profile.labelAlphaMin);
+  const finalAlpha = fade * blinkAlpha;
+
+  ctx.font = `bold ${profile.labelFontSize}px "Courier New", Courier, monospace`;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.shadowBlur = profile.shadowBlur;
+  ctx.shadowColor = `rgba(188, 34, 34, ${finalAlpha * 0.4})`;
+  ctx.fillStyle = `rgba(188, 42, 42, ${finalAlpha})`;
+  ctx.fillText(label.text, label.x, label.y);
+
+  return true;
+}
+
+export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgroundProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+
+    if (!container || !canvas) return;
+
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const staticCanvas = document.createElement("canvas");
+    const staticCtx = staticCanvas.getContext("2d", { alpha: false });
+
+    if (!ctx || !staticCtx) return;
+
+    const reducedMotionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const labels: LiveRecLabel[] = [];
+    let profile = pickQualityProfile(container.clientWidth, container.clientHeight, reducedMotionMedia.matches, videoFocused);
+    let anchors = buildLabelAnchors(container.clientWidth, container.clientHeight, profile);
+    let glyphs = buildStaticGlyphs(container.clientWidth, container.clientHeight, profile);
+    let cssWidth = 0;
+    let cssHeight = 0;
+    let dpr = 1;
+    let rafId = 0;
+    let resizeRafId = 0;
+    let lastFrameAt = 0;
+    let nextSpawnAt = 0;
+
+    const syncMetadata = () => {
+      container.dataset.motionMode = profile.motionEnabled ? "animated" : "reduced";
+      container.dataset.quality = profile.name;
+      canvas.dataset.fps = String(profile.fps);
+    };
+
+    const setCanvasSize = () => {
+      const bounds = container.getBoundingClientRect();
+      cssWidth = Math.max(1, Math.round(bounds.width));
+      cssHeight = Math.max(1, Math.round(bounds.height));
+      dpr = Math.min(window.devicePixelRatio || 1, profile.dprCap);
+
+      canvas.width = Math.round(cssWidth * dpr);
+      canvas.height = Math.round(cssHeight * dpr);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      staticCanvas.width = Math.round(cssWidth * dpr);
+      staticCanvas.height = Math.round(cssHeight * dpr);
+      staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const configureScene = () => {
+      profile = pickQualityProfile(container.clientWidth, container.clientHeight, reducedMotionMedia.matches, videoFocused);
+      setCanvasSize();
+      glyphs = buildStaticGlyphs(cssWidth, cssHeight, profile);
+      anchors = buildLabelAnchors(cssWidth, cssHeight, profile);
+      labels.splice(profile.maxLabels);
+      drawStaticLayer(staticCtx, cssWidth, cssHeight, profile, glyphs);
+      syncMetadata();
+    };
+
+    const pickWeightedAnchor = () => {
+      if (!anchors.length) return null;
+
+      const totalWeight = anchors.reduce((sum, anchor) => sum + anchor.weight, 0);
+      let cursor = Math.random() * totalWeight;
+
+      for (const anchor of anchors) {
+        cursor -= anchor.weight;
+        if (cursor > 0) continue;
+
+        const labelWidth = profile.labelFontSize * 9.6;
+        const x = clamp(anchor.x, 14, Math.max(14, cssWidth - labelWidth - 14));
+        const y = clamp(anchor.y, 18, Math.max(18, cssHeight - 18));
+        return { x, y };
+      }
+
+      return null;
+    };
+
+    const chooseAnchor = () => {
+      if (!anchors.length) return null;
+
+      const minDistance = profile.labelFontSize * 3.2;
+
+      for (let attempt = 0; attempt < 18; attempt += 1) {
+        const anchor = pickWeightedAnchor();
+        if (!anchor) break;
+
+        const text = ASCII_LABEL_GLYPHS[Math.floor(Math.random() * ASCII_LABEL_GLYPHS.length)] ?? "LIVE";
+        const labelWidth = profile.labelFontSize * (text.length * 0.56);
+        const x = clamp(anchor.x, 14, Math.max(14, cssWidth - labelWidth - 14));
+        const y = clamp(anchor.y, profile.labelFontSize, Math.max(profile.labelFontSize, cssHeight - profile.labelFontSize));
+        const overlapsExisting = labels.some((label) => Math.hypot(label.x - x, label.y - y) < minDistance);
+
+        if (!overlapsExisting) {
+          return { x, y, text };
+        }
+      }
+
+      const fallback = pickWeightedAnchor();
+      if (!fallback) return null;
+
+      const text = ASCII_LABEL_GLYPHS[Math.floor(Math.random() * ASCII_LABEL_GLYPHS.length)] ?? "LIVE";
+      const labelWidth = profile.labelFontSize * (text.length * 0.56);
+
+      return {
+        x: clamp(fallback.x, 14, Math.max(14, cssWidth - labelWidth - 14)),
+        y: clamp(fallback.y, profile.labelFontSize, Math.max(profile.labelFontSize, cssHeight - profile.labelFontSize)),
+        text,
+      };
+    };
+
+    const seedLabels = (now: number) => {
+      labels.length = 0;
+
+      if (!profile.motionEnabled) return;
+
+      const desired = Math.max(3, Math.round(profile.maxLabels * profile.initialFillRatio));
+
+      for (let index = 0; index < desired; index += 1) {
+        const anchor = chooseAnchor();
+        if (!anchor) continue;
+
+        const ageOffset = Math.random() * 2400;
+        labels.push({
+          x: anchor.x,
+          y: anchor.y,
+          text: anchor.text,
+          bornAt: now - ageOffset,
+          lifeTime: 6200 + Math.random() * 4200,
+          blinkRate: 950 + Math.random() * 1250,
+          phase: Math.random() * 6000,
+        });
+      }
+    };
+
+    const spawnLabel = (now: number) => {
+      if (!profile.motionEnabled || labels.length >= profile.maxLabels) return;
+
+      const anchor = chooseAnchor();
+      if (!anchor) return;
+
+      labels.push({
+        x: anchor.x,
+        y: anchor.y,
+        text: anchor.text,
+        bornAt: now,
+        lifeTime: 6200 + Math.random() * 4200,
+        blinkRate: 950 + Math.random() * 1250,
+        phase: Math.random() * 6000,
+      });
+    };
+
+    const renderFrame = (now: number) => {
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      ctx.drawImage(staticCanvas, 0, 0, cssWidth, cssHeight);
+
+      if (profile.motionEnabled) {
+        if (now >= nextSpawnAt && labels.length < profile.maxLabels) {
+          spawnLabel(now);
+          nextSpawnAt = now + profile.spawnMinMs + Math.random() * (profile.spawnMaxMs - profile.spawnMinMs);
+        }
+
+        for (let index = labels.length - 1; index >= 0; index -= 1) {
+          const isAlive = drawLiveRecLabel(ctx, labels[index], now, profile);
+          if (!isAlive) {
+            labels.splice(index, 1);
+          }
+        }
+      }
+
+      ctx.shadowBlur = 0;
+    };
+
+    const tick = (now: number) => {
+      if (document.visibilityState !== "visible") return;
+
+      if (!profile.motionEnabled) {
+        renderFrame(now);
+        return;
+      }
+
+      const frameInterval = 1000 / profile.fps;
+
+      if (!lastFrameAt || now - lastFrameAt >= frameInterval) {
+        lastFrameAt = now;
+        renderFrame(now);
+      }
+
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    const startLoop = () => {
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+      lastFrameAt = 0;
+      const now = performance.now();
+      seedLabels(now);
+      nextSpawnAt = now + profile.spawnMinMs * 0.6;
+      renderFrame(now);
+
+      if (profile.motionEnabled && document.visibilityState === "visible") {
+        rafId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    const scheduleResize = () => {
+      if (resizeRafId) return;
+
+      resizeRafId = window.requestAnimationFrame(() => {
+        resizeRafId = 0;
+        configureScene();
+        startLoop();
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        startLoop();
+        return;
+      }
+
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+    };
+
+    const handleMotionChange = () => {
+      configureScene();
+      startLoop();
+    };
+
+    configureScene();
+    startLoop();
+
+    window.addEventListener("resize", scheduleResize);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    reducedMotionMedia.addEventListener("change", handleMotionChange);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.cancelAnimationFrame(resizeRafId);
+      window.removeEventListener("resize", scheduleResize);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+      reducedMotionMedia.removeEventListener("change", handleMotionChange);
+    };
+  }, [videoFocused]);
+
+  return (
+    <div
+      ref={containerRef}
+      aria-hidden="true"
+      data-testid="ascii-rec-background"
+      data-video-focused={videoFocused ? "true" : "false"}
+      className={`ascii-rec-bg ${className ?? ""}`.trim()}
+    >
+      <canvas ref={canvasRef} data-testid="ascii-rec-canvas" className="ascii-rec-bg__canvas" />
+      <div data-testid="ascii-rec-scanlines" className="ascii-rec-bg__scanlines" />
+      <div data-testid="ascii-rec-vignette" className="ascii-rec-bg__vignette" />
+    </div>
+  );
+}

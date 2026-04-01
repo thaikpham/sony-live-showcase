@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type ChangeEvent, type SyntheticEvent } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { spring, SlideIn } from "../lib/ios-motion";
+import { AsciiRecBackground } from "../components/AsciiRecBackground";
 import {
   Camera,
   Gauge,
@@ -592,7 +593,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
   > = {
     cool: {
       surface:
-        "border-cyan-300/15 bg-[linear-gradient(145deg,rgba(34,211,238,0.2)_0%,rgba(10,14,21,0.94)_35%,rgba(7,10,15,0.98)_100%)]",
+        "border-cyan-300/20 bg-[linear-gradient(145deg,rgba(34,211,238,0.24)_0%,rgba(8,13,22,0.975)_34%,rgba(5,8,14,0.995)_100%)]",
       badge: "bg-cyan-400/25 text-cyan-100",
       chip: "bg-cyan-400/20 text-cyan-100",
       dot: "bg-cyan-300",
@@ -601,7 +602,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
     },
     warm: {
       surface:
-        "border-fuchsia-300/15 bg-[linear-gradient(145deg,rgba(250,204,21,0.22)_0%,rgba(244,114,182,0.1)_34%,rgba(10,11,17,0.98)_100%)]",
+        "border-fuchsia-300/20 bg-[linear-gradient(145deg,rgba(250,204,21,0.26)_0%,rgba(244,114,182,0.14)_28%,rgba(10,11,18,0.975)_58%,rgba(7,8,13,0.995)_100%)]",
       badge: "bg-fuchsia-400/25 text-fuchsia-100",
       chip: "bg-fuchsia-400/22 text-fuchsia-100",
       dot: "bg-fuchsia-300",
@@ -610,7 +611,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
     },
     warning: {
       surface:
-        "border-amber-300/20 bg-[linear-gradient(145deg,rgba(245,158,11,0.3)_0%,rgba(217,119,6,0.14)_38%,rgba(16,11,5,0.98)_100%)]",
+        "border-amber-300/22 bg-[linear-gradient(145deg,rgba(245,158,11,0.34)_0%,rgba(217,119,6,0.18)_28%,rgba(16,11,6,0.978)_56%,rgba(9,7,4,0.996)_100%)]",
       badge: "bg-amber-400/25 text-amber-100",
       chip: "bg-amber-400/22 text-amber-100",
       dot: "bg-amber-300",
@@ -793,7 +794,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
             animate={reduceMotion || hasYouTubeVideo ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }}
             exit={reduceMotion || hasYouTubeVideo ? { opacity: 0 } : { opacity: 0, x: slideDirection * -56, scale: 0.98 }}
             transition={reduceMotion || hasYouTubeVideo ? { duration: 0.12 } : { duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className={`group relative overflow-visible rounded-[24px] border p-4 md:p-5 ${currentTone.surface}`}
+            className={`group relative overflow-visible rounded-[24px] border p-4 backdrop-blur-[18px] md:p-5 md:backdrop-blur-[22px] ${currentTone.surface}`}
             whileHover={
               reduceMotion || hasYouTubeVideo
                 ? undefined
@@ -842,17 +843,17 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                 {!hasYouTubeVideo && (
                   <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),transparent_42%,rgba(0,0,0,0.22))]" />
                 )}
-                <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/20 bg-black/35 px-2 py-1 text-[10px] font-semibold text-white/80 backdrop-blur-sm">
+                <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/20 bg-black/55 px-2 py-1 text-[10px] font-semibold text-white/90 backdrop-blur-md">
                   {String(activeIndex + 1).padStart(2, "0")} · {currentReason.title}
                 </div>
               </div>
 
-                <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">{currentReason.title}</p>
+                <div className="min-w-0 rounded-[22px] border border-white/10 bg-black/34 px-4 py-4 backdrop-blur-xl">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-300">{currentReason.title}</p>
                 <h3 className="mt-1 text-[20px] font-black leading-[1.12] text-balance text-white sm:text-[24px] xl:text-[28px]">
                   {currentReason.hook}
                 </h3>
-                <p className="mt-1 text-[15px] leading-[1.45] text-pretty text-neutral-200 sm:text-[16px]">
+                <p className="mt-1 text-[15px] leading-[1.45] text-pretty text-neutral-100 sm:text-[16px]">
                   {currentReason.benefit}
                 </p>
 
@@ -873,7 +874,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                   ))}
                 </div>
 
-                <ul className="mt-3 space-y-1.5 text-[14px] leading-[1.5] text-pretty text-neutral-200 sm:text-[15px]">
+                <ul className="mt-3 space-y-1.5 text-[14px] leading-[1.5] text-pretty text-neutral-100 sm:text-[15px]">
                   {currentReason.details.map((detail) => (
                     <li key={detail} className="flex items-start gap-2">
                       <span className={`mt-1.5 h-1.5 w-1.5 rounded-full ${currentTone.dot}`} />
@@ -1820,7 +1821,9 @@ export function LivestreamShowcasePage() {
           transition={{ duration: 0.25 }}
         >
           <div className="relative h-full w-full">
-            <div className="mx-auto flex h-full w-full max-w-[1680px] items-center justify-center px-1 sm:px-3 lg:px-6">
+            <AsciiRecBackground videoFocused={isVideoSlideFocused} className="absolute inset-0 z-0" />
+
+            <div className="relative z-10 mx-auto flex h-full w-full max-w-[1680px] items-center justify-center px-1 sm:px-3 lg:px-6">
               <div className="grid h-full w-full grid-cols-1 items-center gap-y-6 lg:grid-cols-[49%_51%] lg:gap-x-6 xl:gap-x-8">
                 <div className="relative h-full overflow-hidden">
                   <div className="absolute left-1/2 top-0 origin-top -translate-x-1/2 translate-y-[30px] scale-[1.02] lg:left-[48%] lg:translate-y-[38px] lg:scale-[1.14]">
