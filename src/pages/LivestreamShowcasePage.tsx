@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, type ChangeEvent, type Synthe
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { spring, SlideIn } from "../lib/ios-motion";
 import {
-  ArrowLeft,
   Camera,
   Gauge,
   Star,
@@ -1761,20 +1760,6 @@ export function LivestreamShowcasePage() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25 }}
         >
-          <div className="absolute left-4 top-4 z-[180] sm:left-6 sm:top-6">
-            <motion.button
-              type="button"
-              onClick={exitToSop}
-              className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/35 px-4 py-2 text-sm font-semibold text-white/90 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/[0.14] hover:text-white"
-              whileHover={{ scale: 1.02, x: -2 }}
-              whileTap={{ scale: 0.98 }}
-              transition={spring.hover}
-              aria-label="Back to Livestream SOP"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to SOP</span>
-            </motion.button>
-          </div>
           <div className="relative h-full w-full">
             <div className="mx-auto flex h-full w-full max-w-[1680px] items-center justify-center px-1 sm:px-3 lg:px-6">
               <div className="grid h-full w-full grid-cols-1 items-center gap-y-6 lg:grid-cols-[49%_51%] lg:gap-x-6 xl:gap-x-8">

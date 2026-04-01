@@ -14,7 +14,7 @@ pnpm preview --host 127.0.0.1 --port 4174
 
 ## Env
 
-- `VITE_MAIN_APP_URL`: base URL của web chính để nút back quay về `.../livestream`
+- `VITE_MAIN_APP_URL`: base URL của web chính để flow thoát Showcase quay về `.../livestream`
 
 Ví dụ local:
 
@@ -33,4 +33,4 @@ Smoke test bao gồm:
 
 - load app standalone ở `/`
 - verify carousel video tutorial 11-15 dùng một YouTube player host duy nhất
-- verify nút back quay về `/livestream` của main app
+- verify phím `Escape` quay về `/livestream` của main app

@@ -13,7 +13,6 @@ test.describe("Livestream Showcase standalone app", () => {
   test("loads the standalone showcase shell", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
 
-    await expect(page.getByRole("button", { name: "Back to Livestream SOP" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Go to reason 11" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Next reason" })).toBeVisible();
   });
@@ -43,7 +42,7 @@ test.describe("Livestream Showcase standalone app", () => {
     }
   });
 
-  test("returns to the main livestream SOP", async ({ page }) => {
+  test("returns to the main livestream SOP with Escape", async ({ page }) => {
     await page.route(`${mainAppOrigin}/**`, async (route) => {
       await route.fulfill({
         status: 200,
@@ -57,7 +56,7 @@ test.describe("Livestream Showcase standalone app", () => {
       referer: `${mainAppOrigin}/livestream/showcase`,
     });
 
-    await page.getByRole("button", { name: "Back to Livestream SOP" }).click();
+    await page.keyboard.press("Escape");
     await page.waitForURL(`${mainAppOrigin}/livestream`);
 
     await expect(page.getByText("main app livestream stub")).toBeVisible();
