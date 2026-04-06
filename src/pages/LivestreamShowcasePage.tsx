@@ -75,6 +75,42 @@ interface SonyReason {
   tone: "cool" | "warm" | "warning";
 }
 
+type YouTubeQualityLevel = "small" | "medium" | "large" | "hd720" | "hd1080" | "highres" | "default";
+
+interface YouTubePlayer {
+  destroy: () => void;
+  playVideo: () => void;
+  setVolume: (volume: number) => void;
+  unMute: () => void;
+  setPlaybackQuality: (quality: YouTubeQualityLevel) => void;
+}
+
+interface YouTubePlayerStateMap {
+  ENDED: number;
+}
+
+interface YouTubeNamespace {
+  Player: new (
+    element: HTMLElement,
+    options: {
+      videoId: string;
+      playerVars?: Record<string, string | number>;
+      events?: {
+        onReady?: (event: { target: YouTubePlayer }) => void;
+        onStateChange?: (event: { data: number }) => void;
+      };
+    },
+  ) => YouTubePlayer;
+  PlayerState: YouTubePlayerStateMap;
+}
+
+declare global {
+  interface Window {
+    YT?: YouTubeNamespace;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
 const HEART_COLORS = ['#ff6b6b', '#ff8787', '#ff6b9d', '#c44569', '#f8b500', '#ff6b35'];
 const COMPLIMENT_TEXTS = [
   "Sony lên màu đẹp quá! 📸",
@@ -246,6 +282,8 @@ function getYouTubeThumbnailUrl(videoId: string) {
 
 const SHOWCASE_YOUTUBE_PLAYER_HOST_ID = "showcase-youtube-player-host";
 const DEFAULT_MAIN_APP_URL = "http://127.0.0.1:5173";
+const YOUTUBE_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
+let youTubeApiReadyPromise: Promise<YouTubeNamespace> | null = null;
 
 function ensureTrailingSlash(value: string) {
   return value.endsWith("/") ? value : `${value}/`;
@@ -279,20 +317,41 @@ function buildMainAppUrl(pathname: string) {
   return new URL(pathname.replace(/^\//, ""), resolveMainAppBaseUrl()).toString();
 }
 
-function buildYouTubeEmbedUrl(videoId: string, autoplay = false) {
-  const params = new URLSearchParams({
-    autoplay: autoplay ? "1" : "0",
-    controls: "1",
-    mute: "1",
-    rel: "0",
-    playsinline: "1",
-    modestbranding: "1",
-    iv_load_policy: "3",
-    cc_load_policy: "0",
-    fs: "1",
+function loadYouTubeIframeApi() {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("YouTube API requires a browser environment."));
+  }
+
+  if (window.YT?.Player) {
+    return Promise.resolve(window.YT);
+  }
+
+  if (youTubeApiReadyPromise) {
+    return youTubeApiReadyPromise;
+  }
+
+  youTubeApiReadyPromise = new Promise<YouTubeNamespace>((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(`script[src="${YOUTUBE_IFRAME_API_SRC}"]`);
+    const script = existingScript ?? document.createElement("script");
+
+    window.onYouTubeIframeAPIReady = () => {
+      if (window.YT?.Player) {
+        resolve(window.YT);
+        return;
+      }
+      reject(new Error("YouTube API loaded but player constructor is unavailable."));
+    };
+
+    script.onerror = () => reject(new Error("Failed to load YouTube Iframe API."));
+
+    if (!existingScript) {
+      script.src = YOUTUBE_IFRAME_API_SRC;
+      script.async = true;
+      document.head.appendChild(script);
+    }
   });
 
-  return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
+  return youTubeApiReadyPromise;
 }
 
 const SONY_LIVE_REASONS: SonyReason[] = [
@@ -538,6 +597,8 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
   const [activeIndex, setActiveIndex] = useState(0);
   const [slideDirection, setSlideDirection] = useState<1 | -1>(1);
   const [isVideoFrameLoaded, setIsVideoFrameLoaded] = useState(false);
+  const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
+  const youtubePlayerHostRef = useRef<HTMLDivElement | null>(null);
   const reduceMotion = useReducedMotion();
   const AUTO_PLAY_MS = 15000;
 
@@ -576,8 +637,6 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
   const currentTone = toneStyles[currentReason.tone];
   const slideProgress = ((activeIndex + 1) / SONY_LIVE_REASONS.length) * 100;
   const currentMediaAspectRatio = currentReason.mediaAspectRatio ?? (hasYouTubeVideo ? "16 / 9" : "1.92 / 1");
-  const youtubeEmbedUrl =
-    hasYouTubeVideo && currentReason.youtubeVideoId ? buildYouTubeEmbedUrl(currentReason.youtubeVideoId, true) : undefined;
   const imagePlaceholderTone: Record<SonyReason["tone"], string> = {
     cool: "from-[#526c96] via-[#3c4767] to-[#1a2748]",
     warm: "from-[#8e6b55] via-[#785a4e] to-[#39263a]",
@@ -639,6 +698,75 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
     return () => window.clearTimeout(timer);
   }, [activeIndex, hasYouTubeVideo]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const destroyPlayer = () => {
+      if (youtubePlayerRef.current) {
+        youtubePlayerRef.current.destroy();
+        youtubePlayerRef.current = null;
+      }
+
+      youtubePlayerHostRef.current?.replaceChildren();
+    };
+
+    if (!hasYouTubeVideo || !currentReason.youtubeVideoId || !youtubePlayerHostRef.current) {
+      destroyPlayer();
+      return;
+    }
+
+    const youtubeVideoId = currentReason.youtubeVideoId;
+
+    setIsVideoFrameLoaded(false);
+    destroyPlayer();
+
+    void loadYouTubeIframeApi()
+      .then((yt) => {
+        if (cancelled || !youtubePlayerHostRef.current) return;
+
+        youtubePlayerRef.current = new yt.Player(youtubePlayerHostRef.current, {
+          videoId: youtubeVideoId,
+          playerVars: {
+            autoplay: 1,
+            controls: 1,
+            rel: 0,
+            playsinline: 1,
+            modestbranding: 1,
+            iv_load_policy: 3,
+            cc_load_policy: 0,
+            fs: 1,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: (event) => {
+              if (cancelled) return;
+              setIsVideoFrameLoaded(true);
+              event.target.unMute();
+              event.target.setVolume(100);
+              event.target.setPlaybackQuality("hd720");
+              event.target.playVideo();
+            },
+            onStateChange: (event) => {
+              if (cancelled) return;
+              if (event.data === yt.PlayerState.ENDED) {
+                goNext();
+              }
+            },
+          },
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIsVideoFrameLoaded(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      destroyPlayer();
+    };
+  }, [currentReason.youtubeVideoId, hasYouTubeVideo]);
+
   return (
     <SlideIn from="left" delay={0.28} className="flex w-full max-w-[940px] flex-col lg:origin-center lg:scale-[0.86] xl:scale-[0.92] 2xl:scale-100">
       <div className="space-y-4">
@@ -677,18 +805,10 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                   }`}
                   style={{ transform: "translateZ(0)" }}
                 >
-                  <iframe
-                    key={currentReason.youtubeVideoId ?? "no-video"}
+                  <div
                     id={SHOWCASE_YOUTUBE_PLAYER_HOST_ID}
-                    src={youtubeEmbedUrl}
-                    title="Sony livestream showcase video"
-                    className="h-full w-full overflow-hidden rounded-[inherit] border-0"
-                    allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                    loading="lazy"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                    onLoad={() => {
-                      if (hasYouTubeVideo) setIsVideoFrameLoaded(true);
-                    }}
+                    ref={youtubePlayerHostRef}
+                    className="h-full w-full overflow-hidden rounded-[inherit]"
                   />
                 </div>
                 <img
@@ -714,12 +834,12 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                 </div>
               </div>
 
-              <div className="min-w-0 px-1 sm:px-2">
+              <div className="w-full min-w-0 px-1 sm:px-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/52">{currentReason.title}</p>
-                <h3 className="mt-3 max-w-[18ch] text-[30px] font-black leading-[0.96] tracking-[-0.045em] text-pretty text-white sm:max-w-[19ch] sm:text-[36px] xl:max-w-[20ch] xl:text-[48px]">
+                <h3 className="mt-3 w-full text-[30px] font-black leading-[0.96] tracking-[-0.045em] text-balance text-white sm:text-[36px] xl:text-[48px]">
                   {currentReason.hook}
                 </h3>
-                <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.6] text-pretty text-white/78 sm:text-[16px]">
+                <p className="mt-3 w-full text-[14px] leading-[1.6] text-balance text-white/78 sm:text-[16px]">
                   {currentReason.benefit}
                 </p>
 
@@ -1334,6 +1454,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                 <label className="block">
                   <span className="text-[10px] font-semibold text-white/75">Rotate source</span>
                   <select
+                    id="rotate-source"
+                    name="rotate-source"
                     value={String(sourceRotation)}
                     onChange={(e: ChangeEvent<HTMLSelectElement>) => setSourceRotation(Number(e.target.value))}
                     className="mt-1 w-full rounded-lg border border-white/15 bg-[#0e1118] px-2 py-1.5 text-[11px] text-white outline-none"
@@ -1347,17 +1469,17 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#0e1118] px-2 py-1.5 text-[10px] text-white/90">
-                    <input type="checkbox" checked={flipHorizontal} onChange={(e: ChangeEvent<HTMLInputElement>) => setFlipHorizontal(e.target.checked)} />
+                    <input id="flip-horizontal" name="flip-horizontal" type="checkbox" checked={flipHorizontal} onChange={(e: ChangeEvent<HTMLInputElement>) => setFlipHorizontal(e.target.checked)} />
                     Flip H
                   </label>
                   <label className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#0e1118] px-2 py-1.5 text-[10px] text-white/90">
-                    <input type="checkbox" checked={flipVertical} onChange={(e: ChangeEvent<HTMLInputElement>) => setFlipVertical(e.target.checked)} />
+                    <input id="flip-vertical" name="flip-vertical" type="checkbox" checked={flipVertical} onChange={(e: ChangeEvent<HTMLInputElement>) => setFlipVertical(e.target.checked)} />
                     Flip V
                   </label>
                 </div>
 
                 <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0e1118] px-2 py-1.5 text-[10px] text-white/90">
-                  <input type="checkbox" checked={frameRotate90} onChange={(e: ChangeEvent<HTMLInputElement>) => setFrameRotate90(e.target.checked)} />
+                  <input id="rotate-frame-90" name="rotate-frame-90" type="checkbox" checked={frameRotate90} onChange={(e: ChangeEvent<HTMLInputElement>) => setFrameRotate90(e.target.checked)} />
                   Rotate frame 90°
                 </label>
               </div>
@@ -1540,7 +1662,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
         </div>
 
         {/* ── LIVE COMMENTS ── */}
-        <div className="absolute bottom-24 left-5 right-[84px] z-30 flex flex-col gap-1.5">
+        <div className="absolute bottom-8 left-5 right-5 z-30 flex flex-col gap-1.5">
           <AnimatePresence mode="popLayout">
             {feedComments.map(comment => (
               <motion.div
@@ -1572,26 +1694,6 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
               </motion.div>
             ))}
           </AnimatePresence>
-        </div>
-
-        <div className="absolute bottom-8 left-5 right-[84px] z-30 flex items-center gap-2">
-          <div className="flex-1 rounded-full border border-white/12 bg-black/34 px-4 py-2 text-[12px] text-white/46 backdrop-blur-sm">
-            Comment...
-          </div>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-black/34 text-white/82 backdrop-blur-sm"
-            aria-label="Like this stream"
-          >
-            ♡
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-black/34 text-white/82 backdrop-blur-sm"
-            aria-label="Share this stream"
-          >
-            ↗
-          </button>
         </div>
 
         {/* ── RIGHT ACTION BUTTONS ── */}

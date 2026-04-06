@@ -36,6 +36,7 @@ interface QualityProfile {
   dprCap: number;
   fps: number;
   maxLabels: number;
+  maxStaticGlyphs: number;
   cellDensity: number;
   cellWidth: number;
   cellHeight: number;
@@ -81,6 +82,7 @@ function pickQualityProfile(width: number, height: number, reducedMotion: boolea
       dprCap: isMobile || isTablet ? 1.25 : 1.5,
       fps: 0,
       maxLabels: 0,
+      maxStaticGlyphs: isMobile ? 220 : isTablet ? 300 : 380,
       cellDensity: isMobile ? 0.22 : isTablet ? 0.24 : 0.26,
       cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
       cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
@@ -101,8 +103,9 @@ function pickQualityProfile(width: number, height: number, reducedMotion: boolea
   return {
     name: isMobile ? "mobile" : isTablet ? "tablet" : "desktop",
     dprCap: isMobile || isTablet ? 1.25 : 1.5,
-    fps: isMobile || shortestEdge < 720 ? 14 : videoFocused ? 18 : 24,
+    fps: isMobile || shortestEdge < 720 ? 12 : videoFocused ? 16 : 20,
     maxLabels: isMobile ? 12 : isTablet ? 20 : 30,
+    maxStaticGlyphs: isMobile ? 280 : isTablet ? 420 : videoFocused ? 540 : 640,
     cellDensity: videoFocused ? (isMobile ? 0.2 : isTablet ? 0.22 : 0.24) : isMobile ? 0.24 : isTablet ? 0.27 : 0.3,
     cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
     cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
@@ -123,6 +126,10 @@ function pickQualityProfile(width: number, height: number, reducedMotion: boolea
 function buildStaticGlyphs(width: number, height: number, profile: QualityProfile) {
   const columns = Math.ceil(width / profile.cellWidth) + 1;
   const rows = Math.ceil(height / profile.cellHeight) + 1;
+  const estimatedCells = Math.max(1, columns * rows);
+  const estimatedGlyphs = Math.max(1, estimatedCells * profile.cellDensity);
+  // Keep density visually balanced while capping total glyphs on large canvases.
+  const densityBudgetScale = Math.min(1, profile.maxStaticGlyphs / estimatedGlyphs);
   const glyphs: StaticGlyph[] = [];
 
   for (let row = 0; row < rows; row += 1) {
@@ -139,7 +146,7 @@ function buildStaticGlyphs(width: number, height: number, profile: QualityProfil
       const rightBand = bandStrength(normalizedX, 0.91, 0.18);
       const sideBand = Math.max(leftBand, rightBand);
       const verticalFeather = 0.88 + edgeY * 0.12;
-      const density = profile.cellDensity * (0.06 + sideBand * 1.26) * verticalFeather;
+      const density = profile.cellDensity * densityBudgetScale * (0.06 + sideBand * 1.26) * verticalFeather;
 
       if (chance > density) continue;
 
