@@ -68,6 +68,7 @@ interface SonyReason {
   benefit: string;
   imageUrl: string;
   youtubeVideoId?: string;
+  mediaAspectRatio?: string;
   chips: string[];
   details: string[];
   icon: React.ComponentType<{ className?: string }>;
@@ -140,7 +141,7 @@ const COMMENT_POOL: FeedComment[] = [
 
 const GIFT_EMOJIS = ["🎁", "🌹", "💎", "🏆", "🔥", "🚀", "💐", "⭐"];
 const INITIAL_VISIBLE_FEED_COMMENTS = 4;
-const MAX_VISIBLE_FEED_COMMENTS = 6;
+const MAX_VISIBLE_FEED_COMMENTS = 4;
 const CAMERA_BASE_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 1080 },
   height: { ideal: 1920 },
@@ -239,68 +240,6 @@ function buildVideoSourceOptions(devices: MediaDeviceInfo[]) {
   return { visibleOptions, hiddenLabels };
 }
 
-declare global {
-  interface YouTubePlayerHandle {
-    destroy?: () => void;
-    playVideo?: () => void;
-    pauseVideo?: () => void;
-    mute?: () => void;
-    unMute?: () => void;
-    setVolume?: (volume: number) => void;
-    loadVideoById?: (videoId: string) => void;
-  }
-
-  interface Window {
-    YT?: {
-      Player?: new (
-        element: HTMLElement,
-        options: {
-          videoId: string;
-          playerVars?: Record<string, number>;
-          events?: {
-            onReady?: (event: { target?: YouTubePlayerHandle }) => void;
-            onStateChange?: (event: { data: number }) => void;
-          };
-        },
-      ) => YouTubePlayerHandle;
-      PlayerState?: {
-        ENDED: number;
-      };
-    };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-let youtubeIframeApiPromise: Promise<void> | null = null;
-
-function loadYouTubeIframeApi() {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (window.YT?.Player) return Promise.resolve();
-  if (youtubeIframeApiPromise) return youtubeIframeApiPromise;
-
-  youtubeIframeApiPromise = new Promise<void>((resolve) => {
-    const previousReadyHandler = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
-      previousReadyHandler?.();
-      resolve();
-    };
-
-    const existingScript = document.querySelector<HTMLScriptElement>(
-      'script[src="https://www.youtube.com/iframe_api"]',
-    );
-
-    if (!existingScript) {
-      const script = document.createElement("script");
-      script.src = "https://www.youtube.com/iframe_api";
-      script.async = true;
-      script.onerror = () => resolve();
-      document.head.appendChild(script);
-    }
-  });
-
-  return youtubeIframeApiPromise;
-}
-
 function getYouTubeThumbnailUrl(videoId: string) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
@@ -338,6 +277,22 @@ function resolveMainAppBaseUrl() {
 
 function buildMainAppUrl(pathname: string) {
   return new URL(pathname.replace(/^\//, ""), resolveMainAppBaseUrl()).toString();
+}
+
+function buildYouTubeEmbedUrl(videoId: string, autoplay = false) {
+  const params = new URLSearchParams({
+    autoplay: autoplay ? "1" : "0",
+    controls: "1",
+    mute: "1",
+    rel: "0",
+    playsinline: "1",
+    modestbranding: "1",
+    iv_load_policy: "3",
+    cc_load_policy: "0",
+    fs: "1",
+  });
+
+  return `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
 }
 
 const SONY_LIVE_REASONS: SonyReason[] = [
@@ -498,6 +453,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video hướng dẫn thực hành cách chuyển nhanh chế độ Product Showcase.",
     imageUrl: getYouTubeThumbnailUrl("xlatYBYoGSA"),
     youtubeVideoId: "xlatYBYoGSA",
+    mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Product Showcase", "Sony ZV"],
     details: [
       "Giải thích khi nào nên dùng Product Showcase trong livestream bán hàng.",
@@ -514,6 +470,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video cài đặt Soft Skin để làm mịn da tự nhiên khi livestream.",
     imageUrl: getYouTubeThumbnailUrl("CDJcWg5JYww"),
     youtubeVideoId: "CDJcWg5JYww",
+    mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Soft Skin", "Beauty Setup"],
     details: [
       "Thiết lập mức Soft Skin phù hợp từng điều kiện ánh sáng khác nhau.",
@@ -530,6 +487,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video gợi ý setup lens và phụ kiện tối ưu cho ngành thời trang.",
     imageUrl: getYouTubeThumbnailUrl("f1cIbqmgQOg"),
     youtubeVideoId: "f1cIbqmgQOg",
+    mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Lens Combo", "Fashion Live"],
     details: [
       "Đề xuất tiêu cự và góc máy giúp tôn chất liệu, màu sắc sản phẩm.",
@@ -546,6 +504,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video hướng dẫn setup dành cho bối cảnh quay cận món ăn và mỹ phẩm.",
     imageUrl: getYouTubeThumbnailUrl("1r6Tgcytqpk"),
     youtubeVideoId: "1r6Tgcytqpk",
+    mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "F&B", "Cosmetic Live"],
     details: [
       "Tinh chỉnh khung và ánh sáng để texture món ăn/mỹ phẩm nổi bật.",
@@ -562,6 +521,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video tổng hợp quy trình setup nhanh cho phiên livestream tiêu chuẩn.",
     imageUrl: getYouTubeThumbnailUrl("U2OoMn2H1Pk"),
     youtubeVideoId: "U2OoMn2H1Pk",
+    mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Quick Setup", "Pro Livestream"],
     details: [
       "Checklist toàn bộ bước chuẩn bị trước khi lên sóng.",
@@ -577,13 +537,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
 function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (isVideoMode: boolean) => void }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [slideDirection, setSlideDirection] = useState<1 | -1>(1);
-  const [youtubePlayerHost, setYoutubePlayerHost] = useState<HTMLDivElement | null>(null);
-  const youtubePlayerRef = useRef<YouTubePlayerHandle | null>(null);
-  const firstYoutubeVideoId = useRef(
-    SONY_LIVE_REASONS.find((reason) => reason.youtubeVideoId)?.youtubeVideoId ?? null,
-  ).current;
-  const [isPlayerReady, setIsPlayerReady] = useState(false);
-  const [hasUnlockedAudio, setHasUnlockedAudio] = useState(false);
+  const [isVideoFrameLoaded, setIsVideoFrameLoaded] = useState(false);
   const reduceMotion = useReducedMotion();
   const AUTO_PLAY_MS = 15000;
 
@@ -592,62 +546,47 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
     { surface: string; badge: string; chip: string; dot: string; glow: string; hoverShadow: string }
   > = {
     cool: {
-      surface:
-        "border-cyan-300/20 bg-[linear-gradient(145deg,rgba(34,211,238,0.24)_0%,rgba(8,13,22,0.975)_34%,rgba(5,8,14,0.995)_100%)]",
-      badge: "bg-cyan-400/25 text-cyan-100",
-      chip: "bg-cyan-400/20 text-cyan-100",
+      surface: "border-cyan-300/16",
+      badge: "border border-white/10 bg-slate-600/72 text-slate-100",
+      chip: "border border-cyan-300/18 bg-cyan-400/12 text-cyan-100",
       dot: "bg-cyan-300",
-      glow: "from-cyan-400/28 via-cyan-300/8 to-transparent",
-      hoverShadow: "0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(34,211,238,0.35)",
+      glow: "from-cyan-300/20 via-sky-300/6 to-transparent",
+      hoverShadow: "0 26px 48px rgba(3, 8, 20, 0.46), 0 0 0 1px rgba(94, 221, 255, 0.14)",
     },
     warm: {
-      surface:
-        "border-fuchsia-300/20 bg-[linear-gradient(145deg,rgba(250,204,21,0.26)_0%,rgba(244,114,182,0.14)_28%,rgba(10,11,18,0.975)_58%,rgba(7,8,13,0.995)_100%)]",
-      badge: "bg-fuchsia-400/25 text-fuchsia-100",
-      chip: "bg-fuchsia-400/22 text-fuchsia-100",
+      surface: "border-fuchsia-300/16",
+      badge: "border border-white/10 bg-stone-500/68 text-stone-100",
+      chip: "border border-fuchsia-300/16 bg-fuchsia-400/12 text-fuchsia-100",
       dot: "bg-fuchsia-300",
-      glow: "from-fuchsia-400/26 via-amber-300/10 to-transparent",
-      hoverShadow: "0 20px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(244,114,182,0.35)",
+      glow: "from-fuchsia-300/18 via-amber-200/6 to-transparent",
+      hoverShadow: "0 26px 48px rgba(3, 8, 20, 0.46), 0 0 0 1px rgba(244, 114, 182, 0.14)",
     },
     warning: {
-      surface:
-        "border-amber-300/22 bg-[linear-gradient(145deg,rgba(245,158,11,0.34)_0%,rgba(217,119,6,0.18)_28%,rgba(16,11,6,0.978)_56%,rgba(9,7,4,0.996)_100%)]",
-      badge: "bg-amber-400/25 text-amber-100",
-      chip: "bg-amber-400/22 text-amber-100",
+      surface: "border-amber-300/18",
+      badge: "border border-white/10 bg-neutral-600/72 text-neutral-100",
+      chip: "border border-amber-300/18 bg-amber-400/12 text-amber-100",
       dot: "bg-amber-300",
-      glow: "from-amber-400/30 via-orange-400/14 to-transparent",
-      hoverShadow: "0 20px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(245,158,11,0.4)",
+      glow: "from-amber-300/18 via-orange-300/6 to-transparent",
+      hoverShadow: "0 26px 48px rgba(3, 8, 20, 0.46), 0 0 0 1px rgba(245, 185, 92, 0.14)",
     },
   };
 
   const currentReason = SONY_LIVE_REASONS[activeIndex];
   const hasYouTubeVideo = Boolean(currentReason.youtubeVideoId);
   const currentTone = toneStyles[currentReason.tone];
+  const slideProgress = ((activeIndex + 1) / SONY_LIVE_REASONS.length) * 100;
+  const currentMediaAspectRatio = currentReason.mediaAspectRatio ?? (hasYouTubeVideo ? "16 / 9" : "1.92 / 1");
+  const youtubeEmbedUrl =
+    hasYouTubeVideo && currentReason.youtubeVideoId ? buildYouTubeEmbedUrl(currentReason.youtubeVideoId, true) : undefined;
   const imagePlaceholderTone: Record<SonyReason["tone"], string> = {
-    cool: "from-cyan-300/28 via-sky-400/16 to-blue-500/20",
-    warm: "from-fuchsia-300/25 via-amber-300/14 to-violet-500/20",
-    warning: "from-amber-300/30 via-orange-400/16 to-rose-500/18",
+    cool: "from-[#526c96] via-[#3c4767] to-[#1a2748]",
+    warm: "from-[#8e6b55] via-[#785a4e] to-[#39263a]",
+    warning: "from-[#7f6347] via-[#5d432f] to-[#2d2131]",
   };
 
   useEffect(() => {
     onVideoFocusChange?.(hasYouTubeVideo);
   }, [hasYouTubeVideo, onVideoFocusChange]);
-
-  useEffect(() => {
-    if (hasUnlockedAudio) return;
-
-    const unlockAudio = () => {
-      setHasUnlockedAudio(true);
-    };
-
-    window.addEventListener("pointerdown", unlockAudio, { once: true, passive: true });
-    window.addEventListener("keydown", unlockAudio, { once: true });
-
-    return () => {
-      window.removeEventListener("pointerdown", unlockAudio);
-      window.removeEventListener("keydown", unlockAudio);
-    };
-  }, [hasUnlockedAudio]);
 
   const goPrev = () => {
     setSlideDirection(-1);
@@ -683,15 +622,16 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
       appendedLinks.push(link);
     });
 
-    void loadYouTubeIframeApi();
-
     return () => {
       appendedLinks.forEach((link) => link.remove());
     };
   }, []);
 
   useEffect(() => {
-    if (hasYouTubeVideo) return;
+    if (hasYouTubeVideo) {
+      setIsVideoFrameLoaded(false);
+      return;
+    }
     const timer = window.setTimeout(() => {
       setSlideDirection(1);
       setActiveIndex((prev) => (prev + 1) % SONY_LIVE_REASONS.length);
@@ -699,137 +639,63 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
     return () => window.clearTimeout(timer);
   }, [activeIndex, hasYouTubeVideo]);
 
-  useEffect(() => {
-    if (!youtubePlayerHost || !firstYoutubeVideoId) return;
-
-    let isCancelled = false;
-
-    const mountYouTubePlayer = async () => {
-      await loadYouTubeIframeApi();
-      if (isCancelled || !youtubePlayerHost || !window.YT?.Player) return;
-
-      youtubePlayerRef.current?.destroy?.();
-      youtubePlayerRef.current = null;
-      setIsPlayerReady(false);
-
-      youtubePlayerRef.current = new window.YT.Player(youtubePlayerHost, {
-        videoId: firstYoutubeVideoId,
-        playerVars: {
-          autoplay: 0,
-          controls: 1,
-          mute: 1,
-          rel: 0,
-          playsinline: 1,
-          modestbranding: 1,
-          iv_load_policy: 3,
-          cc_load_policy: 0,
-          fs: 1,
-        },
-        events: {
-          onReady: (event) => {
-            if (isCancelled) return;
-            setIsPlayerReady(true);
-            event.target?.mute?.();
-            event.target?.setVolume?.(100);
-          },
-          onStateChange: (event) => {
-            if (window.YT?.PlayerState && event.data === window.YT.PlayerState.ENDED) {
-              setSlideDirection(1);
-              setActiveIndex((prev) => (prev + 1) % SONY_LIVE_REASONS.length);
-            }
-          },
-        },
-      });
-    };
-
-    void mountYouTubePlayer();
-
-    return () => {
-      isCancelled = true;
-      youtubePlayerRef.current?.destroy?.();
-      youtubePlayerRef.current = null;
-      setIsPlayerReady(false);
-    };
-  }, [firstYoutubeVideoId, youtubePlayerHost]);
-
-  useEffect(() => {
-    if (!isPlayerReady || !youtubePlayerRef.current) return;
-
-    if (!hasYouTubeVideo || !currentReason.youtubeVideoId) {
-      youtubePlayerRef.current.pauseVideo?.();
-      return;
-    }
-
-    youtubePlayerRef.current.loadVideoById?.(currentReason.youtubeVideoId);
-    youtubePlayerRef.current.setVolume?.(100);
-    if (hasUnlockedAudio) {
-      youtubePlayerRef.current.unMute?.();
-    } else {
-      youtubePlayerRef.current.mute?.();
-    }
-    youtubePlayerRef.current.playVideo?.();
-
-    const retryTimer = window.setTimeout(() => {
-      youtubePlayerRef.current?.setVolume?.(100);
-      if (hasUnlockedAudio) {
-        youtubePlayerRef.current?.unMute?.();
-      } else {
-        youtubePlayerRef.current?.mute?.();
-      }
-      youtubePlayerRef.current?.playVideo?.();
-    }, 260);
-
-    return () => {
-      window.clearTimeout(retryTimer);
-    };
-  }, [hasUnlockedAudio, isPlayerReady, hasYouTubeVideo, currentReason.youtubeVideoId]);
-
   return (
-    <SlideIn from="left" delay={0.28} className="flex w-full max-w-[1040px] flex-col">
-      <div className="space-y-3">
+    <SlideIn from="left" delay={0.28} className="flex w-full max-w-[940px] flex-col lg:origin-center lg:scale-[0.86] xl:scale-[0.92] 2xl:scale-100">
+      <div className="space-y-4">
         <AnimatePresence mode="wait" initial={false}>
-            <motion.article
+          <motion.article
             key={hasYouTubeVideo ? "youtube-carousel-panel" : currentReason.id}
             initial={reduceMotion || hasYouTubeVideo ? { opacity: 0 } : { opacity: 0, x: slideDirection * 56, scale: 0.98 }}
             animate={reduceMotion || hasYouTubeVideo ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }}
             exit={reduceMotion || hasYouTubeVideo ? { opacity: 0 } : { opacity: 0, x: slideDirection * -56, scale: 0.98 }}
             transition={reduceMotion || hasYouTubeVideo ? { duration: 0.12 } : { duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className={`group relative overflow-visible rounded-[24px] border p-4 backdrop-blur-[18px] md:p-5 md:backdrop-blur-[22px] ${currentTone.surface}`}
+            className={`showcase-panel-shell group relative overflow-hidden rounded-[30px] p-4 md:p-5 ${currentTone.surface}`}
             whileHover={
               reduceMotion || hasYouTubeVideo
                 ? undefined
                 : {
                     y: -4,
-                    scale: 1.01,
                     boxShadow: currentTone.hoverShadow,
                   }
             }
           >
-            {!hasYouTubeVideo && (
-              <div
-                className={`pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br ${currentTone.glow} opacity-70 blur-2xl transition-opacity duration-200 group-hover:opacity-100`}
-              />
-            )}
+            <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+            <div
+              className={`pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-gradient-to-br ${currentTone.glow} opacity-80 blur-3xl transition-opacity duration-200 group-hover:opacity-100`}
+            />
 
             <div className="flex flex-col gap-4 p-1">
-              <div className={`relative mx-auto w-full max-w-[860px] overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br ${imagePlaceholderTone[currentReason.tone]} aspect-video`}>
+              <div
+                className={`showcase-panel-media relative mx-auto w-full max-w-[860px] ${
+                  hasYouTubeVideo ? "bg-transparent" : `bg-gradient-to-br ${imagePlaceholderTone[currentReason.tone]}`
+                }`}
+                style={{ aspectRatio: currentMediaAspectRatio }}
+              >
                 <div
-                  className={`absolute inset-0 bg-black transition-opacity duration-200 ${
-                    hasYouTubeVideo ? "opacity-100" : "pointer-events-none opacity-0"
+                  className={`absolute inset-0 transition-opacity duration-200 ${
+                    hasYouTubeVideo && isVideoFrameLoaded ? "opacity-100" : "pointer-events-none opacity-0"
                   }`}
                   style={{ transform: "translateZ(0)" }}
                 >
-                  <div
+                  <iframe
+                    key={currentReason.youtubeVideoId ?? "no-video"}
                     id={SHOWCASE_YOUTUBE_PLAYER_HOST_ID}
-                    ref={setYoutubePlayerHost}
-                    className="h-full w-full"
+                    src={youtubeEmbedUrl}
+                    title="Sony livestream showcase video"
+                    className="h-full w-full overflow-hidden rounded-[inherit] border-0"
+                    allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                    loading="lazy"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    onLoad={() => {
+                      if (hasYouTubeVideo) setIsVideoFrameLoaded(true);
+                    }}
                   />
                 </div>
                 <img
                   src={currentReason.imageUrl}
                   alt={currentReason.hook}
                   className={`h-full w-full object-cover transition-opacity duration-200 ${
-                    hasYouTubeVideo ? "pointer-events-none opacity-0" : "opacity-100"
+                    hasYouTubeVideo && isVideoFrameLoaded ? "pointer-events-none opacity-0" : "opacity-100"
                   }`}
                   loading="lazy"
                   referrerPolicy="no-referrer"
@@ -838,92 +704,94 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                   }}
                 />
                 {!hasYouTubeVideo && (
-                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_24%_22%,rgba(255,255,255,0.2),transparent_54%)]" />
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_24%_22%,rgba(255,255,255,0.2),transparent_48%)]" />
                 )}
                 {!hasYouTubeVideo && (
-                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),transparent_42%,rgba(0,0,0,0.22))]" />
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(6,10,18,0.04),transparent_38%,rgba(1,3,7,0.34))]" />
                 )}
-                <div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/20 bg-black/55 px-2 py-1 text-[10px] font-semibold text-white/90 backdrop-blur-md">
+                <div className={`pointer-events-none absolute left-4 top-4 rounded-xl px-3 py-1.5 text-[12px] font-semibold tracking-[0.01em] backdrop-blur-md ${currentTone.badge}`}>
                   {String(activeIndex + 1).padStart(2, "0")} · {currentReason.title}
                 </div>
               </div>
 
-                <div className="min-w-0 rounded-[22px] border border-white/10 bg-black/34 px-4 py-4 backdrop-blur-xl">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-300">{currentReason.title}</p>
-                <h3 className="mt-1 text-[20px] font-black leading-[1.12] text-balance text-white sm:text-[24px] xl:text-[28px]">
+              <div className="min-w-0 px-1 sm:px-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/52">{currentReason.title}</p>
+                <h3 className="mt-3 max-w-[18ch] text-[30px] font-black leading-[0.96] tracking-[-0.045em] text-pretty text-white sm:max-w-[19ch] sm:text-[36px] xl:max-w-[20ch] xl:text-[48px]">
                   {currentReason.hook}
                 </h3>
-                <p className="mt-1 text-[15px] leading-[1.45] text-pretty text-neutral-100 sm:text-[16px]">
+                <p className="mt-3 max-w-[62ch] text-[14px] leading-[1.6] text-pretty text-white/78 sm:text-[16px]">
                   {currentReason.benefit}
                 </p>
 
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {currentReason.chips.map((chip, chipIndex) => (
-                    <motion.span
-                      key={chip}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${currentTone.chip}`}
-                      animate={reduceMotion || hasYouTubeVideo ? undefined : { scale: [1, 1.03, 1] }}
-                      transition={
-                        reduceMotion || hasYouTubeVideo
-                          ? undefined
-                          : { duration: 1.4, repeat: Infinity, repeatDelay: 0.8, delay: chipIndex * 0.15 }
-                      }
-                    >
-                      {chip}
-                    </motion.span>
-                  ))}
-                </div>
-
-                <ul className="mt-3 space-y-1.5 text-[14px] leading-[1.5] text-pretty text-neutral-100 sm:text-[15px]">
+                <ul className="mt-4 space-y-2 text-[15px] leading-[1.58] text-pretty text-white/92 sm:text-[16px]">
                   {currentReason.details.map((detail) => (
                     <li key={detail} className="flex items-start gap-2">
-                      <span className={`mt-1.5 h-1.5 w-1.5 rounded-full ${currentTone.dot}`} />
+                      <span className={`mt-[0.72rem] h-1.5 w-1.5 rounded-full ${currentTone.dot}`} />
                       <span>{detail}</span>
                     </li>
                   ))}
                 </ul>
               </div>
+              <div className="mt-4 border-t border-white/8 px-1 pt-4 sm:px-2">
+                <div className="flex items-center gap-3">
+                  <span className="min-w-[74px] text-[30px] font-light tracking-[-0.05em] text-white/95">
+                    {String(activeIndex + 1).padStart(2, "0")}
+                    <span className="ml-1 text-white/34">/</span>
+                    <span className="ml-1 text-[22px] text-white/52">
+                      {String(SONY_LIVE_REASONS.length).padStart(2, "0")}
+                    </span>
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={goPrev}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/78 transition hover:bg-white/[0.12] hover:text-white"
+                      aria-label="Previous reason"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/78 transition hover:bg-white/[0.12] hover:text-white"
+                      aria-label="Next reason"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="showcase-progress-track ml-auto h-2.5 flex-1">
+                    <motion.div
+                      className="showcase-progress-fill"
+                      animate={{ width: `${slideProgress}%` }}
+                      transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    />
+                    <motion.span
+                      className="showcase-progress-thumb"
+                      animate={{ left: `${slideProgress}%` }}
+                      transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-5 gap-1.5 sm:flex sm:flex-wrap sm:items-center sm:gap-1.5">
+                  {SONY_LIVE_REASONS.map((reason, index) => (
+                    <button
+                      key={reason.id}
+                      type="button"
+                      onClick={() => goTo(index)}
+                      className={`h-2 rounded-full transition-all ${
+                        index === activeIndex ? "bg-white sm:w-8" : "bg-white/22 hover:bg-white/40 sm:w-4"
+                      }`}
+                      aria-label={`Go to reason ${index + 1}`}
+                    />
+                  ))}
+                </div>
               </div>
-            </motion.article>
-          </AnimatePresence>
-
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={goPrev}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/80 transition hover:bg-white/[0.16] hover:text-white"
-              aria-label="Previous reason"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={goNext}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/80 transition hover:bg-white/[0.16] hover:text-white"
-              aria-label="Next reason"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-            <span className="text-xs font-semibold tracking-[0.18em] text-neutral-400">
-              {String(activeIndex + 1).padStart(2, "0")}/{String(SONY_LIVE_REASONS.length).padStart(2, "0")}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {SONY_LIVE_REASONS.map((reason, index) => (
-              <button
-                key={reason.id}
-                type="button"
-                onClick={() => goTo(index)}
-                className={`h-1.5 rounded-full transition-all ${
-                  index === activeIndex ? "w-8 bg-white" : "w-3 bg-white/25 hover:bg-white/45"
-                }`}
-                aria-label={`Go to reason ${index + 1}`}
-              />
-            ))}
-          </div>
-        </div>
+            </div>
+          </motion.article>
+        </AnimatePresence>
       </div>
     </SlideIn>
   );
@@ -954,6 +822,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   const [isPickerOpen, setIsPickerOpen] = useState(true);
   const [isRefreshingSources, setIsRefreshingSources] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
+  const transientIdRef = useRef(INITIAL_VISIBLE_FEED_COMMENTS);
   const [showControlPanel, setShowControlPanel] = useState(false);
   const [flipHorizontal, setFlipHorizontal] = useState(false);
   const [flipVertical, setFlipVertical] = useState(false);
@@ -964,6 +833,12 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   useEffect(() => {
     selectedDeviceIdRef.current = selectedDeviceId;
   }, [selectedDeviceId]);
+
+  const nextTransientId = useCallback(() => {
+    const nextId = transientIdRef.current;
+    transientIdRef.current += 1;
+    return nextId;
+  }, []);
 
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
@@ -1100,7 +975,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   }, [attachStream, selectedDeviceId, stopCurrentStream, videoSources]);
 
   const spawnHeart = useCallback(() => {
-    const id = Date.now() * 100 + Math.floor(Math.random() * 100);
+    const id = nextTransientId();
     const heart: HeartParticle = {
       id,
       rightPct: 4 + Math.floor(Math.random() * 20),
@@ -1112,10 +987,10 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
     };
     setHearts(prev => [...prev, heart]);
     setTimeout(() => setHearts(prev => prev.filter(h => h.id !== id)), 2800);
-  }, []);
+  }, [nextTransientId]);
 
   const spawnGift = useCallback(() => {
-    const id = Date.now() * 100 + Math.floor(Math.random() * 100);
+    const id = nextTransientId();
     const gift: GiftParticle = {
       id,
       rightPct: 8 + Math.floor(Math.random() * 18),
@@ -1127,15 +1002,15 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
     };
     setGifts(prev => [...prev, gift]);
     setTimeout(() => setGifts(prev => prev.filter(g => g.id !== id)), 3200);
-  }, []);
+  }, [nextTransientId]);
 
   const appendNextFeedComment = useCallback(() => {
     const idx = commentIndexRef.current;
     commentIndexRef.current = idx + 1;
     const next = COMMENT_POOL[idx % COMMENT_POOL.length];
-    const id = Date.now() * 100 + Math.floor(Math.random() * 100);
+    const id = nextTransientId();
     setFeedComments(prev => [...prev, { ...next, id }].slice(-MAX_VISIBLE_FEED_COMMENTS));
-  }, []);
+  }, [nextTransientId]);
 
   const spawnGiftBurst = useCallback(() => {
     const burstSize = 2 + Math.floor(Math.random() * 3);
@@ -1161,14 +1036,14 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   useEffect(() => {
     if (isVideoPerformanceMode) return;
     const t = setInterval(() => {
-      const id = Date.now() * 100 + Math.floor(Math.random() * 100);
+      const id = nextTransientId();
       const text = COMPLIMENT_TEXTS[Math.floor(Math.random() * COMPLIMENT_TEXTS.length)];
       const leftPct = 4 + Math.floor(Math.random() * 38);
       setCompliments(prev => [...prev, { id, text, leftPct }]);
       setTimeout(() => setCompliments(prev => prev.filter(c => c.id !== id)), 2900);
     }, 2100);
     return () => clearInterval(t);
-  }, [isVideoPerformanceMode]);
+  }, [isVideoPerformanceMode, nextTransientId]);
 
   // Viewer count drift up
   useEffect(() => {
@@ -1313,25 +1188,25 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       transition={{ ...spring.smooth, delay: 0.2 }}
     >
       {/* ── Phone shell ── */}
-      <div className="relative h-[834px] w-[392px]">
+      <div className="relative h-[812px] w-[376px]">
         <AnimatePresence>
           {isPickerOpen && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-[140] flex items-start justify-center rounded-[38px] bg-black/72 px-5 pb-5 pt-[64px] backdrop-blur-md"
+              className="absolute inset-0 z-[140] flex items-start justify-center rounded-[38px] bg-[#04070d]/58 px-5 pb-5 pt-[72px] backdrop-blur-md"
             >
               <motion.div
                 initial={{ opacity: 0, y: 16, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 12, scale: 0.98 }}
                 transition={{ duration: 0.18 }}
-                className="max-h-full w-full overflow-y-auto rounded-[28px] border border-white/15 bg-[#07090d]/95 p-4 shadow-[0_28px_80px_rgba(0,0,0,0.65)]"
+                className="max-h-full w-full overflow-y-auto rounded-[30px] border border-white/12 bg-[linear-gradient(180deg,rgba(17,24,45,0.96)_0%,rgba(8,12,24,0.95)_100%)] p-4 shadow-[0_28px_80px_rgba(0,0,0,0.65)]"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200/80">
                       Video Source Picker
                     </p>
                     <h3 className="mt-1 text-[22px] font-black leading-tight text-white">
@@ -1346,7 +1221,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                     type="button"
                     onClick={() => void refreshVideoSources(true)}
                     disabled={isRefreshingSources}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/80 transition hover:bg-white/[0.12] hover:text-white disabled:cursor-wait disabled:opacity-50"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-white/80 transition hover:bg-white/[0.12] hover:text-white disabled:cursor-wait disabled:opacity-50"
                     aria-label="Quét lại source camera"
                   >
                     <RefreshCw className={`h-4 w-4 ${isRefreshingSources ? "animate-spin" : ""}`} />
@@ -1362,8 +1237,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                         key={source.deviceId}
                         className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition ${
                           active
-                            ? "border-cyan-300/40 bg-cyan-400/10 shadow-[0_0_0_1px_rgba(103,232,249,0.2)]"
-                            : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
+                            ? "border-cyan-300/32 bg-cyan-400/8 shadow-[0_0_0_1px_rgba(103,232,249,0.16)]"
+                            : "border-white/10 bg-white/[0.025] hover:border-white/20 hover:bg-white/[0.05]"
                         }`}
                       >
                         <input
@@ -1377,7 +1252,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                           <div className="flex items-center gap-2">
                             <p className="truncate text-[12px] font-semibold text-white">{source.label}</p>
                             {source.recommended && (
-                              <span className="rounded-full border border-cyan-300/25 bg-cyan-400/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-cyan-200">
+                              <span className="rounded-full border border-cyan-300/18 bg-cyan-400/12 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-cyan-100">
                                 Recommended
                               </span>
                             )}
@@ -1490,10 +1365,10 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           )}
         </AnimatePresence>
 
-        <div className="pointer-events-none absolute -inset-7 rounded-[48px] bg-[radial-gradient(circle_at_14%_24%,rgba(164,204,255,0.24),rgba(120,150,196,0.1)_30%,transparent_66%)] blur-2xl" />
-        <div className="pointer-events-none absolute -inset-7 rounded-[48px] bg-[radial-gradient(circle_at_88%_78%,rgba(142,234,255,0.2),rgba(91,141,168,0.08)_30%,transparent_68%)] blur-2xl" />
-        <div className="pointer-events-none absolute -inset-[1px] rounded-[38px] border border-white/16 shadow-[0_0_0_1px_rgba(173,207,255,0.2),0_0_24px_rgba(115,174,255,0.18),0_0_56px_rgba(109,212,255,0.1)]" />
-        <div className="pointer-events-none absolute inset-[1px] rounded-[36px] border border-white/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(255,255,255,0.03)]" />
+        <div className="pointer-events-none absolute -inset-7 rounded-[48px] bg-[radial-gradient(circle_at_16%_22%,rgba(86,198,213,0.22),rgba(86,198,213,0.06)_34%,transparent_66%)] blur-3xl" />
+        <div className="pointer-events-none absolute -inset-8 rounded-[52px] bg-[radial-gradient(circle_at_78%_72%,rgba(152,53,128,0.18),rgba(152,53,128,0.05)_30%,transparent_66%)] blur-3xl" />
+        <div className="pointer-events-none absolute -inset-[1px] rounded-[40px] border border-white/16 shadow-[0_0_0_1px_rgba(198,221,255,0.16),0_0_24px_rgba(44,194,209,0.12)]" />
+        <div className="pointer-events-none absolute inset-[2px] rounded-[36px] border border-white/7 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(255,255,255,0.04)]" />
         <motion.div
           className="pointer-events-none absolute -left-8 -right-8 top-1 z-10 h-11 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.18),rgba(255,255,255,0.02)_55%,transparent_72%)] blur-md"
           animate={isVideoPerformanceMode ? undefined : { opacity: [0.32, 0.55, 0.32] }}
@@ -1501,13 +1376,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           style={isVideoPerformanceMode ? { opacity: 0.24 } : undefined}
         />
 
-        <div className="relative h-full w-full overflow-hidden rounded-[36px] border-[7px] border-[#07080b] bg-[linear-gradient(180deg,#0c0f14_0%,#08090c_100%)] shadow-[0_34px_120px_rgba(0,0,0,0.95),0_0_0_1px_rgba(255,255,255,0.08)]">
+        <div className="relative h-full w-full overflow-hidden rounded-[36px] border-[6px] border-[#0f1116] bg-[linear-gradient(180deg,#10131a_0%,#080a0f_100%)] shadow-[0_34px_120px_rgba(0,0,0,0.92),0_0_0_1px_rgba(255,255,255,0.08)]">
         <div className="pointer-events-none absolute inset-[3px] rounded-[30px] border border-white/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(255,255,255,0.03)]" />
-        {/* Hardware details */}
-        <div className="pointer-events-none absolute left-1/2 top-[12px] z-40 flex h-[18px] w-[108px] -translate-x-1/2 items-center justify-center">
-          <div className="h-[2.5px] w-[72px] rounded-full bg-neutral-700/75" />
-          <div className="ml-3 h-[7px] w-[7px] rounded-full border border-neutral-600/60 bg-neutral-900" />
-        </div>
         <div className="pointer-events-none absolute left-[2px] top-36 z-40 h-20 w-[2px] rounded-full bg-neutral-500/25" />
         <div className="pointer-events-none absolute right-[1px] top-36 z-40 h-10 w-[3px] rounded-l-full bg-neutral-400/35" />
         <div className="pointer-events-none absolute right-[1px] top-[198px] z-40 h-24 w-[3px] rounded-l-full bg-neutral-400/35" />
@@ -1559,23 +1429,36 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           ))}
 
           {cameraError && (
-            <div className="pointer-events-none absolute left-4 right-4 top-[66px] rounded-xl border border-amber-300/20 bg-black/45 px-3 py-1.5 backdrop-blur-sm">
+            <div className="pointer-events-none absolute left-4 right-4 top-[86px] rounded-xl border border-amber-300/20 bg-black/45 px-3 py-1.5 backdrop-blur-sm">
               <p className="line-clamp-2 text-[10px] font-medium text-amber-200/90">Camera: {cameraError}</p>
             </div>
           )}
         </div>
 
         {/* Bottom gradient for readability */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 bg-gradient-to-b from-black/34 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 h-56 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-none z-10" />
         <div className="pointer-events-none absolute bottom-4 left-1/2 z-40 h-1 w-28 -translate-x-1/2 rounded-full bg-white/60" />
 
         {/* ── TOP BAR ── */}
-        <div className="absolute left-0 right-0 top-0 z-30 px-5 pt-[30px]">
-          <div className="flex items-center justify-between">
-            {/* Avatar + name */}
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white/40 bg-black shadow-lg">
+        <div className="absolute left-0 right-0 top-0 z-30 px-5 pt-[16px]">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-lg bg-red-500 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-[0.08em] text-white shadow-[0_10px_30px_rgba(239,68,68,0.35)]">
+                  Live
+                </span>
+                <span className="flex items-center gap-1.5 rounded-full border border-white/14 bg-black/48 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur-sm">
+                  <span className="h-2 w-2 rounded-full bg-white/85" />
+                  {fmt(viewerCount)}
+                </span>
+                <span className="rounded-full border border-white/14 bg-black/42 px-2.5 py-1 text-[10px] font-semibold text-teal-200 backdrop-blur-sm">
+                  Follow {fmt(followCount)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-white/35 bg-black/40 shadow-lg">
                   <img
                     src="https://www.pngkey.com/png/full/7-76761_alpha-logo-sony-alpha-logo-png.png"
                     alt="Sony Vietnam avatar"
@@ -1586,50 +1469,16 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                     }}
                   />
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-400 rounded-full border border-black" />
-              </div>
-              <div>
-                <div className="text-white text-[13px] font-bold leading-none drop-shadow-lg">@sony.vietnam</div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <motion.div
-                    className="w-2 h-2 rounded-full bg-red-500"
-                    animate={isVideoPerformanceMode ? undefined : { opacity:[1,0.15,1] }}
-                    transition={isVideoPerformanceMode ? undefined : { duration:0.85, repeat:Infinity }}
-                    style={isVideoPerformanceMode ? { opacity: 0.9 } : undefined}
-                  />
-                  <span className="text-red-400 text-[10px] font-extrabold uppercase tracking-wider drop-shadow-lg">LIVE</span>
+                <div className="min-w-0">
+                  <div className="text-[12px] font-bold leading-none drop-shadow-lg">@sony.vietnam</div>
+                  <div className="mt-1 text-[10px] text-white/64">{cameraBadgeText}</div>
                 </div>
               </div>
             </div>
 
-            {/* Viewer + Follow metrics */}
-            <div className="flex flex-col items-end gap-1.5">
-              <div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/60 px-3 py-1.5 backdrop-blur-sm">
-                <svg className="w-4 h-4 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <motion.span
-                  key={viewerCount}
-                  className="text-white text-[11px] font-bold tabular-nums"
-                  initial={{ y:-6, opacity:0 }}
-                  animate={{ y:0, opacity:1 }}
-                  transition={{ duration:0.2 }}
-                >
-                  {fmt(viewerCount)}
-                </motion.span>
-              </div>
-              <div className="flex items-center gap-1.5 rounded-full border border-teal-400/30 bg-black/60 px-2.5 py-1 backdrop-blur-sm">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-teal-300">Follow</span>
-                <motion.span
-                  key={followCount}
-                  className="text-[10px] font-bold tabular-nums text-teal-300"
-                  initial={{ y:-5, opacity:0 }}
-                  animate={{ y:0, opacity:1 }}
-                  transition={{ duration:0.2 }}
-                >
-                  {fmt(followCount)}
-                </motion.span>
+            <div className="flex flex-col items-end gap-2 pt-0.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/14 bg-black/42 text-lg font-light text-white/90 backdrop-blur-sm">
+                ×
               </div>
             </div>
           </div>
@@ -1691,7 +1540,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
         </div>
 
         {/* ── LIVE COMMENTS ── */}
-        <div className="absolute bottom-8 left-5 right-[84px] z-30 flex flex-col gap-1.5">
+        <div className="absolute bottom-24 left-5 right-[84px] z-30 flex flex-col gap-1.5">
           <AnimatePresence mode="popLayout">
             {feedComments.map(comment => (
               <motion.div
@@ -1725,12 +1574,32 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           </AnimatePresence>
         </div>
 
+        <div className="absolute bottom-8 left-5 right-[84px] z-30 flex items-center gap-2">
+          <div className="flex-1 rounded-full border border-white/12 bg-black/34 px-4 py-2 text-[12px] text-white/46 backdrop-blur-sm">
+            Comment...
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-black/34 text-white/82 backdrop-blur-sm"
+            aria-label="Like this stream"
+          >
+            ♡
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-black/34 text-white/82 backdrop-blur-sm"
+            aria-label="Share this stream"
+          >
+            ↗
+          </button>
+        </div>
+
         {/* ── RIGHT ACTION BUTTONS ── */}
-          <div className="absolute bottom-[112px] right-3 z-30 flex flex-col items-center gap-4">
+          <div className="absolute bottom-[124px] right-3 z-30 flex flex-col items-center gap-4">
           {/* Enhanced Like */}
           <div className="flex flex-col items-center gap-1">
             <motion.button
-              className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-2xl shadow-rose-500/40"
+              className="flex h-12 w-12 items-center justify-center rounded-full border border-white/14 bg-[linear-gradient(180deg,rgba(31,37,54,0.92),rgba(12,14,21,0.96))] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
               whileHover={{ scale:1.2, rotate:5 }}
               whileTap={{ scale:0.8 }}
               onClick={() => {
@@ -1755,7 +1624,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           {/* Gift button */}
           <div className="flex flex-col items-center gap-1">
             <motion.button
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-yellow-500 shadow-2xl shadow-amber-500/30"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/14 bg-[linear-gradient(180deg,rgba(31,37,54,0.92),rgba(12,14,21,0.96))] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
               whileHover={{ scale:1.15, rotate:-8 }}
               whileTap={{ scale:0.85 }}
               onClick={() => {
@@ -1814,25 +1683,34 @@ export function LivestreamShowcasePage() {
     <AnimatePresence mode="wait">
       {!isExiting && (
         <motion.div
-          className="fixed inset-0 overflow-hidden bg-[#050608] non-critical"
+          className="showcase-stage fixed inset-0 overflow-hidden non-critical"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25 }}
         >
           <div className="relative h-full w-full">
-            <AsciiRecBackground videoFocused={isVideoSlideFocused} className="absolute inset-0 z-0" />
+            <div className="showcase-stage__grain" />
+            <div className="pointer-events-none absolute -left-[18%] top-[52%] z-[1] h-[48rem] w-[48rem] -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(45,193,196,0.22)_0%,rgba(45,193,196,0.06)_36%,transparent_66%)] blur-3xl" />
+            <div className="pointer-events-none absolute right-[-10%] top-[18%] z-[1] h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(144,40,119,0.22)_0%,rgba(144,40,119,0.06)_34%,transparent_70%)] blur-3xl" />
+            <div className="pointer-events-none absolute bottom-[-24%] left-[12%] z-[1] h-[24rem] w-[48rem] rounded-full border border-cyan-200/10 bg-[radial-gradient(ellipse_at_center,rgba(92,247,255,0.12)_0%,rgba(92,247,255,0.02)_40%,transparent_74%)] blur-2xl" />
+            <AsciiRecBackground videoFocused={isVideoSlideFocused} className="absolute inset-0 z-[1] opacity-75" />
 
-            <div className="relative z-10 mx-auto flex h-full w-full max-w-[1680px] items-center justify-center px-1 sm:px-3 lg:px-6">
-              <div className="grid h-full w-full grid-cols-1 items-center gap-y-6 lg:grid-cols-[49%_51%] lg:gap-x-6 xl:gap-x-8">
-                <div className="relative h-full overflow-hidden">
-                  <div className="absolute left-1/2 top-0 origin-top -translate-x-1/2 translate-y-[30px] scale-[1.02] lg:left-[48%] lg:translate-y-[38px] lg:scale-[1.14]">
+            <div className="showcase-stage__brand-mark" aria-hidden="true">
+              <span>SONY STUDIO</span>
+              <span>LIVESTREAM</span>
+            </div>
+
+            <div className="relative z-10 mx-auto flex h-full w-full max-w-[1600px] items-center justify-center px-4 py-3 sm:px-6 lg:px-8 xl:px-10">
+              <div className="grid h-full w-full grid-cols-1 items-center gap-y-8 lg:grid-cols-[38.2%_61.8%] lg:gap-x-10 xl:gap-x-14 2xl:gap-x-18">
+                <div className="relative flex h-full items-center justify-center overflow-visible lg:justify-end">
+                  <div className="showcase-phone-stage relative scale-[0.9] lg:translate-x-[2%] lg:translate-y-[18px] lg:scale-[0.92] xl:-translate-x-[1%] xl:translate-y-[16px] xl:scale-[1]">
                     <PhoneMockup performanceMode={isVideoSlideFocused ? "video" : "normal"} />
                   </div>
                 </div>
-                <div className="relative h-full lg:pr-4 xl:pr-6 2xl:pr-8">
+                <div className="relative flex h-full items-center justify-center lg:pr-10 xl:pr-16 2xl:pr-20">
                   <div className="flex h-full w-full items-center justify-center">
-                    <div className="w-full max-w-[1020px] lg:-translate-x-[4%]">
+                    <div className="w-full max-w-[1020px] lg:translate-x-[3%] xl:translate-x-[5%]">
                       <SonyLiveReasonsPanel onVideoFocusChange={setIsVideoSlideFocused} />
                     </div>
                   </div>

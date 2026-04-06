@@ -52,7 +52,7 @@ interface QualityProfile {
   initialFillRatio: number;
 }
 
-const BACKGROUND_COLOR = "#050608";
+const BACKGROUND_COLOR = "#040915";
 const ASCII_MICRO_GLYPHS = [".", ":", "+", "|", "/", "\\", "-", "=", "L", "I", "V", "E", "S", "O", "N", "Y"];
 const ASCII_WORD_GLYPHS = ["LIVE", "SONY", "STUDIO", "ON AIR"];
 const ASCII_LABEL_GLYPHS = ["LIVE", "SONY", "STUDIO", "ON AIR", "LIVE SONY", "SONY STUDIO", "STUDIO ON AIR"];
@@ -225,7 +225,7 @@ function drawStaticLayer(
   for (const glyph of glyphs) {
     const fillAlpha = glyph.alpha;
     ctx.font = `${glyph.fontSize}px "Courier New", Courier, monospace`;
-    ctx.fillStyle = `rgba(220, 58, 58, ${fillAlpha})`;
+    ctx.fillStyle = `rgba(122, 194, 255, ${fillAlpha})`;
     ctx.fillText(glyph.glyph, glyph.x, glyph.y);
   }
 }
@@ -258,8 +258,8 @@ function drawLiveRecLabel(
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.shadowBlur = profile.shadowBlur;
-  ctx.shadowColor = `rgba(220, 52, 52, ${finalAlpha * 0.62})`;
-  ctx.fillStyle = `rgba(232, 72, 72, ${finalAlpha})`;
+  ctx.shadowColor = `rgba(82, 198, 255, ${finalAlpha * 0.48})`;
+  ctx.fillStyle = `rgba(164, 225, 255, ${finalAlpha})`;
   ctx.fillText(label.text, drawX, drawY);
 
   return true;
