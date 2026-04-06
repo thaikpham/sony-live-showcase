@@ -1,13 +1,38 @@
 import { expect, test } from "@playwright/test";
 
-const mainAppOrigin =
+const env =
   (
     globalThis as typeof globalThis & {
       process?: {
         env?: Record<string, string | undefined>;
       };
     }
-  ).process?.env?.E2E_MAIN_APP_URL ?? "http://127.0.0.1:5173";
+  ).process?.env ?? {};
+
+const showcaseBaseUrl = env.E2E_BASE_URL ?? "http://127.0.0.1:4174";
+
+function resolveMainAppOrigin() {
+  const configuredMainAppUrl = env.E2E_MAIN_APP_URL?.trim();
+  if (configuredMainAppUrl) return configuredMainAppUrl;
+
+  try {
+    const showcaseUrl = new URL(showcaseBaseUrl);
+    const isVercelShowcaseDeployment =
+      showcaseUrl.protocol === "https:" &&
+      showcaseUrl.hostname.endsWith(".vercel.app") &&
+      showcaseUrl.hostname.includes("sony-livestream-showcase");
+
+    if (isVercelShowcaseDeployment) {
+      return "https://sonywiki.vercel.app";
+    }
+  } catch {
+    // Ignore invalid base URLs and fall back to the local main app default.
+  }
+
+  return "http://127.0.0.1:5173";
+}
+
+const mainAppOrigin = resolveMainAppOrigin();
 
 test.describe("Livestream Showcase standalone app", () => {
   test("loads the standalone showcase shell", async ({ page }) => {
