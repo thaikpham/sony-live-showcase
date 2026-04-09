@@ -13,9 +13,12 @@ export interface StoredCameraPreference {
 const STORAGE_KEYS = {
   preferredCamera: "sony-showcase:kiosk:preferred-camera",
   videoAudioMutedFallback: "sony-showcase:kiosk:video-audio-muted-fallback",
+  videoAudioMutedFallbackAt: "sony-showcase:kiosk:video-audio-muted-fallback-at",
   lastBootAt: "sony-showcase:kiosk:last-boot-at",
   lastCameraConnectedAt: "sony-showcase:kiosk:last-camera-connected-at",
 } as const;
+
+const VIDEO_AUDIO_FALLBACK_TTL_MS = 10 * 60 * 1000;
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -106,9 +109,22 @@ export function readLastCameraConnectedAt() {
 }
 
 export function readVideoAudioMutedFallback() {
-  return readString(STORAGE_KEYS.videoAudioMutedFallback) === "1";
+  const enabled = readString(STORAGE_KEYS.videoAudioMutedFallback) === "1";
+  if (!enabled) return false;
+
+  const recordedAt = readString(STORAGE_KEYS.videoAudioMutedFallbackAt);
+  if (!recordedAt) return false;
+
+  const ageMs = Date.now() - Date.parse(recordedAt);
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > VIDEO_AUDIO_FALLBACK_TTL_MS) {
+    writeVideoAudioMutedFallback(false);
+    return false;
+  }
+
+  return true;
 }
 
 export function writeVideoAudioMutedFallback(enabled: boolean) {
   writeString(STORAGE_KEYS.videoAudioMutedFallback, enabled ? "1" : "0");
+  writeString(STORAGE_KEYS.videoAudioMutedFallbackAt, enabled ? new Date().toISOString() : "");
 }

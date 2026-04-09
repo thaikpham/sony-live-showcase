@@ -118,6 +118,7 @@ async function mockYouTubeIframeApi(page: Page) {
 
       constructor(element: HTMLElement, options: {
         videoId: string;
+        playerVars?: Record<string, string | number>;
         events?: {
           onReady?: (event: { target: MockPlayer }) => void;
           onStateChange?: (event: { data: number }) => void;
@@ -125,6 +126,7 @@ async function mockYouTubeIframeApi(page: Page) {
       }) {
         this.host = element;
         this.events = options.events;
+        this.muted = String(options.playerVars?.mute ?? "1") === "1";
         this.iframe = document.createElement("iframe");
         this.iframe.src = `https://www.youtube.com/embed/${options.videoId}?mock=1`;
         this.iframe.allow = "autoplay; encrypted-media";
@@ -214,6 +216,23 @@ test.describe("Livestream Showcase standalone app", () => {
       await expect(page.getByTestId("showcase-carousel-panel")).toHaveAttribute("data-kiosk-audio-mode", /^(audible|muted)$/);
       console.log(`slide=${index} readyMs=${Date.now() - start} host=showcase-youtube-player-host`);
     }
+  });
+
+  test("tries audible YouTube autoplay first in kiosk mode", async ({ page }) => {
+    await mockYouTubeIframeApi(page);
+    await page.goto("/?kiosk=1", { waitUntil: "networkidle" });
+
+    await page.getByRole("button", { name: "Go to reason 11" }).click();
+
+    await expect(page.locator("#showcase-youtube-player-host")).toBeVisible();
+    await expect(page.getByTestId("showcase-carousel-panel")).toHaveAttribute("data-kiosk-audio-mode", "audible");
+
+    const muted = await page.evaluate(() => {
+      const value = window.localStorage.getItem("sony-showcase:kiosk:video-audio-muted-fallback");
+      return value ?? "missing";
+    });
+
+    expect(muted).not.toBe("1");
   });
 
   test("renders the ASCII background in reduced-motion mode", async ({ page }) => {

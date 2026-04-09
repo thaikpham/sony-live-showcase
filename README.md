@@ -7,10 +7,22 @@ Standalone Vite + React app cho chế độ Livestream Showcase được tách k
 Phần này là flow ngắn nhất để deploy từ máy dev của bạn sang Raspberry Pi mới reset.
 
 Tài liệu đầy đủ cho triển khai hàng loạt nằm tại [docs/pi-mass-deployment.md](/home/thaikpham/Documents/sony-live-showcase/docs/pi-mass-deployment.md).
+Flow thao tác riêng cho thẻ mới format để chuẩn bị `golden image` nằm tại [docs/pi-golden-image-prep.md](/home/thaikpham/Documents/sony-live-showcase/docs/pi-golden-image-prep.md).
 Tài liệu handoff cho cửa hàng nằm tại [docs/quick-start-store-staff.md](/home/thaikpham/Documents/sony-live-showcase/docs/quick-start-store-staff.md).
 Checklist phát hành nằm tại [docs/production-release-checklist.md](/home/thaikpham/Documents/sony-live-showcase/docs/production-release-checklist.md).
 Mẫu release notes nằm tại [docs/release-notes-template.md](/home/thaikpham/Documents/sony-live-showcase/docs/release-notes-template.md).
 Tài liệu bundle phát hành nằm tại [docs/production-release-bundle.md](/home/thaikpham/Documents/sony-live-showcase/docs/production-release-bundle.md).
+Tài liệu trạng thái dự án và roadmap nằm tại [docs/project-status-roadmap.md](/home/thaikpham/Documents/sony-live-showcase/docs/project-status-roadmap.md).
+
+### Trạng thái hiện tại
+
+Nếu cần xem nhanh:
+
+- những gì đã hoàn thành
+- những việc chưa hoàn tất
+- roadmap đề xuất theo phase
+
+hãy mở [docs/project-status-roadmap.md](/home/thaikpham/Documents/sony-live-showcase/docs/project-status-roadmap.md).
 
 ### OS chuẩn cho kiosk
 
@@ -318,3 +330,4 @@ Khuyến nghị khi debug lag trên Raspberry Pi 5:
 
 - file mẫu nằm tại [scripts/pi/sony-showcase.policy.json](/home/thaikpham/Documents/sony-live-showcase/scripts/pi/sony-showcase.policy.json)
 - policy này whitelist quyền camera cho cả cloud URL và local fallback URL
+- policy này cũng bật `AutoplayAllowed` và `AutoplayAllowlist` cho kiosk URLs để Chromium trên Pi dễ cho phép YouTube autoplay hơn

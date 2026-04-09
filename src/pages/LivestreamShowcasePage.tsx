@@ -354,6 +354,10 @@ function buildYouTubeEmbedUrl(videoId: string, { muted, autoplay }: { muted: boo
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
+function isPlaybackStateRunning(playerState: number | null, playerStateMap: YouTubePlayerStateMap) {
+  return playerState === playerStateMap.PLAYING || playerState === playerStateMap.BUFFERING;
+}
+
 const SHOWCASE_YOUTUBE_PLAYER_HOST_ID = "showcase-youtube-player-host";
 const DEFAULT_MAIN_APP_URL = "http://127.0.0.1:5173";
 const YOUTUBE_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
@@ -858,7 +862,7 @@ function SonyLiveReasonsPanel({
           playerVars: {
             autoplay: 1,
             controls: 1,
-            mute: 1,
+            mute: shouldAttemptAudibleAutoplay ? 0 : 1,
             rel: 0,
             playsinline: 1,
             modestbranding: 1,
@@ -873,8 +877,12 @@ function SonyLiveReasonsPanel({
               if (cancelled) return;
               setIsVideoFrameLoaded(true);
               playerStateRef.current = yt.PlayerState.UNSTARTED;
-              event.target.mute();
               event.target.setVolume(100);
+              if (shouldAttemptAudibleAutoplay) {
+                event.target.unMute();
+              } else {
+                event.target.mute();
+              }
 
               event.target.setPlaybackQuality("hd720");
               event.target.playVideo();
@@ -882,8 +890,7 @@ function SonyLiveReasonsPanel({
               clearAutoplayTimeout();
               autoplayTimeoutRef.current = window.setTimeout(() => {
                 const currentPlayerState = playerStateRef.current;
-                const hasPlaybackStarted =
-                  currentPlayerState === yt.PlayerState.PLAYING || currentPlayerState === yt.PlayerState.BUFFERING;
+                const hasPlaybackStarted = isPlaybackStateRunning(currentPlayerState, yt.PlayerState);
 
                 if (cancelled || hasPlaybackStarted) return;
 
@@ -917,7 +924,9 @@ function SonyLiveReasonsPanel({
                     if (cancelled || !youtubePlayerRef.current) return;
 
                     youtubePlayerRef.current.setVolume(100);
-                    youtubePlayerRef.current.unMute();
+                    if (shouldAttemptAudibleAutoplay) {
+                      youtubePlayerRef.current.unMute();
+                    }
 
                     window.setTimeout(() => {
                       if (cancelled || !youtubePlayerRef.current) return;
@@ -932,8 +941,9 @@ function SonyLiveReasonsPanel({
                         return;
                       }
 
-                      if (youtubePlayerRef.current.isMuted()) {
+                      if (shouldAttemptAudibleAutoplay && youtubePlayerRef.current.isMuted()) {
                         setAudioFallbackMuted(true);
+                        setPlayerReloadNonce((prev) => prev + 1);
                       }
                     }, 450);
                   }, 180);
