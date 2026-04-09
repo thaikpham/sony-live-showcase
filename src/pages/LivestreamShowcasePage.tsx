@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef, useCallback, type ChangeEvent, type SyntheticEvent } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { spring, SlideIn } from "../lib/ios-motion";
+import {
+  readLastCameraConnectedAt,
+  readPreferredCameraPreference,
+  readShowcaseRuntimeFlags,
+  readVideoAudioMutedFallback,
+  writeLastBootAt,
+  writePreferredCameraPreference,
+  writeVideoAudioMutedFallback,
+  type ShowcaseRuntimeFlags,
+} from "../lib/showcase-runtime";
 import { AsciiRecBackground } from "../components/AsciiRecBackground";
 import {
   Camera,
@@ -61,6 +71,10 @@ interface VideoSourceOption {
   recommended: boolean;
 }
 
+interface SourceSelectionOptions {
+  openPickerOnFailure?: boolean;
+}
+
 interface SonyReason {
   id: number;
   title: string;
@@ -68,6 +82,7 @@ interface SonyReason {
   benefit: string;
   imageUrl: string;
   youtubeVideoId?: string;
+  youtubeDurationMs?: number;
   mediaAspectRatio?: string;
   chips: string[];
   details: string[];
@@ -79,14 +94,22 @@ type YouTubeQualityLevel = "small" | "medium" | "large" | "hd720" | "hd1080" | "
 
 interface YouTubePlayer {
   destroy: () => void;
+  getPlayerState: () => number;
+  isMuted: () => boolean;
   playVideo: () => void;
+  mute: () => void;
   setVolume: (volume: number) => void;
   unMute: () => void;
   setPlaybackQuality: (quality: YouTubeQualityLevel) => void;
 }
 
 interface YouTubePlayerStateMap {
+  BUFFERING: number;
+  CUED: number;
   ENDED: number;
+  PAUSED: number;
+  PLAYING: number;
+  UNSTARTED: number;
 }
 
 interface YouTubeNamespace {
@@ -178,6 +201,10 @@ const COMMENT_POOL: FeedComment[] = [
 const GIFT_EMOJIS = ["🎁", "🌹", "💎", "🏆", "🔥", "🚀", "💐", "⭐"];
 const INITIAL_VISIBLE_FEED_COMMENTS = 4;
 const MAX_VISIBLE_FEED_COMMENTS = 4;
+const KIOSK_CAMERA_RETRY_BASE_MS = 1800;
+const KIOSK_CAMERA_RETRY_MAX_MS = 6500;
+const KIOSK_CAMERA_ERROR_THRESHOLD = 3;
+const KIOSK_VIDEO_AUTOPLAY_TIMEOUT_MS = 4200;
 const CAMERA_BASE_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 1080 },
   height: { ideal: 1920 },
@@ -276,8 +303,55 @@ function buildVideoSourceOptions(devices: MediaDeviceInfo[]) {
   return { visibleOptions, hiddenLabels };
 }
 
+function labelsProbablyMatch(left: string | null | undefined, right: string | null | undefined) {
+  if (!left || !right) return false;
+
+  const normalizedLeft = normalizeCameraLabel(left);
+  const normalizedRight = normalizeCameraLabel(right);
+
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft)
+  );
+}
+
+function pickPreferredVideoSource(options: VideoSourceOption[]) {
+  if (!options.length) return null;
+
+  const storedPreference = readPreferredCameraPreference();
+
+  if (storedPreference?.deviceId) {
+    const exactMatch = options.find((option) => option.deviceId === storedPreference.deviceId);
+    if (exactMatch) return exactMatch;
+  }
+
+  if (storedPreference?.normalizedLabel) {
+    const labelMatch = options.find((option) => labelsProbablyMatch(option.label, storedPreference.normalizedLabel));
+    if (labelMatch) return labelMatch;
+  }
+
+  return options[0];
+}
+
 function getYouTubeThumbnailUrl(videoId: string) {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+function buildYouTubeEmbedUrl(videoId: string, { muted, autoplay }: { muted: boolean; autoplay: boolean }) {
+  const params = new URLSearchParams({
+    autoplay: autoplay ? "1" : "0",
+    controls: "1",
+    enablejsapi: "1",
+    fs: "1",
+    iv_load_policy: "3",
+    modestbranding: "1",
+    mute: muted ? "1" : "0",
+    playsinline: "1",
+    rel: "0",
+  });
+
+  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
 const SHOWCASE_YOUTUBE_PLAYER_HOST_ID = "showcase-youtube-player-host";
@@ -512,6 +586,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video hướng dẫn thực hành cách chuyển nhanh chế độ Product Showcase.",
     imageUrl: getYouTubeThumbnailUrl("xlatYBYoGSA"),
     youtubeVideoId: "xlatYBYoGSA",
+    youtubeDurationMs: 73_000,
     mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Product Showcase", "Sony ZV"],
     details: [
@@ -529,6 +604,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video cài đặt Soft Skin để làm mịn da tự nhiên khi livestream.",
     imageUrl: getYouTubeThumbnailUrl("CDJcWg5JYww"),
     youtubeVideoId: "CDJcWg5JYww",
+    youtubeDurationMs: 36_000,
     mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Soft Skin", "Beauty Setup"],
     details: [
@@ -546,6 +622,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video gợi ý setup lens và phụ kiện tối ưu cho ngành thời trang.",
     imageUrl: getYouTubeThumbnailUrl("f1cIbqmgQOg"),
     youtubeVideoId: "f1cIbqmgQOg",
+    youtubeDurationMs: 38_000,
     mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Lens Combo", "Fashion Live"],
     details: [
@@ -563,6 +640,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video hướng dẫn setup dành cho bối cảnh quay cận món ăn và mỹ phẩm.",
     imageUrl: getYouTubeThumbnailUrl("1r6Tgcytqpk"),
     youtubeVideoId: "1r6Tgcytqpk",
+    youtubeDurationMs: 29_000,
     mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "F&B", "Cosmetic Live"],
     details: [
@@ -580,6 +658,7 @@ const SONY_LIVE_REASONS: SonyReason[] = [
     benefit: "Video tổng hợp quy trình setup nhanh cho phiên livestream tiêu chuẩn.",
     imageUrl: getYouTubeThumbnailUrl("U2OoMn2H1Pk"),
     youtubeVideoId: "U2OoMn2H1Pk",
+    youtubeDurationMs: 41_000,
     mediaAspectRatio: "16 / 9",
     chips: ["YouTube Video", "Quick Setup", "Pro Livestream"],
     details: [
@@ -593,12 +672,26 @@ const SONY_LIVE_REASONS: SonyReason[] = [
 ];
 
 // ─── Sony Reasons Infographic Panel ───────────────────────────────────────────
-function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (isVideoMode: boolean) => void }) {
+function SonyLiveReasonsPanel({
+  kioskMode = false,
+  onVideoFocusChange,
+}: {
+  kioskMode?: boolean;
+  onVideoFocusChange?: (isVideoMode: boolean) => void;
+}) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [slideDirection, setSlideDirection] = useState<1 | -1>(1);
   const [isVideoFrameLoaded, setIsVideoFrameLoaded] = useState(false);
+  const [playerReloadNonce, setPlayerReloadNonce] = useState(0);
+  const [audioFallbackMuted, setAudioFallbackMuted] = useState(() => (kioskMode ? readVideoAudioMutedFallback() : false));
+  const [useIframeFallback, setUseIframeFallback] = useState(false);
   const youtubePlayerRef = useRef<YouTubePlayer | null>(null);
   const youtubePlayerHostRef = useRef<HTMLDivElement | null>(null);
+  const autoplayTimeoutRef = useRef<number | null>(null);
+  const audioLiftTimeoutRef = useRef<number | null>(null);
+  const hasReloadedCurrentVideoRef = useRef(false);
+  const hasAttemptedAudioLiftRef = useRef(false);
+  const playerStateRef = useRef<number | null>(null);
   const reduceMotion = useReducedMotion();
   const AUTO_PLAY_MS = 15000;
 
@@ -647,20 +740,33 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
     onVideoFocusChange?.(hasYouTubeVideo);
   }, [hasYouTubeVideo, onVideoFocusChange]);
 
-  const goPrev = () => {
+  useEffect(() => {
+    if (!kioskMode) return;
+    writeVideoAudioMutedFallback(audioFallbackMuted);
+  }, [audioFallbackMuted, kioskMode]);
+
+  useEffect(() => {
+    playerStateRef.current = null;
+    hasReloadedCurrentVideoRef.current = false;
+    hasAttemptedAudioLiftRef.current = false;
+    setIsVideoFrameLoaded(false);
+    setUseIframeFallback(false);
+  }, [currentReason.id, hasYouTubeVideo]);
+
+  const goPrev = useCallback(() => {
     setSlideDirection(-1);
     setActiveIndex((prev) => (prev - 1 + SONY_LIVE_REASONS.length) % SONY_LIVE_REASONS.length);
-  };
+  }, []);
 
-  const goNext = () => {
+  const goNext = useCallback(() => {
     setSlideDirection(1);
     setActiveIndex((prev) => (prev + 1) % SONY_LIVE_REASONS.length);
-  };
+  }, []);
 
-  const goTo = (index: number) => {
+  const goTo = useCallback((index: number) => {
     setSlideDirection(index > activeIndex ? 1 : -1);
     setActiveIndex(index);
-  };
+  }, [activeIndex]);
 
   useEffect(() => {
     const preconnectTargets = [
@@ -687,21 +793,43 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
   }, []);
 
   useEffect(() => {
-    if (hasYouTubeVideo) {
-      setIsVideoFrameLoaded(false);
+    if (hasYouTubeVideo && !useIframeFallback) {
       return;
     }
+
+    const autoAdvanceMs = hasYouTubeVideo
+      ? (currentReason.youtubeDurationMs ?? AUTO_PLAY_MS) + 1200
+      : AUTO_PLAY_MS;
+
     const timer = window.setTimeout(() => {
       setSlideDirection(1);
       setActiveIndex((prev) => (prev + 1) % SONY_LIVE_REASONS.length);
-    }, AUTO_PLAY_MS);
+    }, autoAdvanceMs);
+
     return () => window.clearTimeout(timer);
-  }, [activeIndex, hasYouTubeVideo]);
+  }, [activeIndex, currentReason.youtubeDurationMs, hasYouTubeVideo, useIframeFallback]);
 
   useEffect(() => {
     let cancelled = false;
 
+    const clearAutoplayTimeout = () => {
+      if (autoplayTimeoutRef.current) {
+        window.clearTimeout(autoplayTimeoutRef.current);
+        autoplayTimeoutRef.current = null;
+      }
+    };
+
+    const clearAudioLiftTimeout = () => {
+      if (audioLiftTimeoutRef.current) {
+        window.clearTimeout(audioLiftTimeoutRef.current);
+        audioLiftTimeoutRef.current = null;
+      }
+    };
+
     const destroyPlayer = () => {
+      clearAutoplayTimeout();
+      clearAudioLiftTimeout();
+
       if (youtubePlayerRef.current) {
         youtubePlayerRef.current.destroy();
         youtubePlayerRef.current = null;
@@ -710,12 +838,13 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
       youtubePlayerHostRef.current?.replaceChildren();
     };
 
-    if (!hasYouTubeVideo || !currentReason.youtubeVideoId || !youtubePlayerHostRef.current) {
+    if (!hasYouTubeVideo || !currentReason.youtubeVideoId || useIframeFallback || !youtubePlayerHostRef.current) {
       destroyPlayer();
       return;
     }
 
     const youtubeVideoId = currentReason.youtubeVideoId;
+    const shouldAttemptAudibleAutoplay = !audioFallbackMuted;
 
     setIsVideoFrameLoaded(false);
     destroyPlayer();
@@ -729,26 +858,90 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
           playerVars: {
             autoplay: 1,
             controls: 1,
+            mute: 1,
             rel: 0,
             playsinline: 1,
             modestbranding: 1,
             iv_load_policy: 3,
             cc_load_policy: 0,
             fs: 1,
+            enablejsapi: 1,
             origin: window.location.origin,
           },
           events: {
             onReady: (event) => {
               if (cancelled) return;
               setIsVideoFrameLoaded(true);
-              event.target.unMute();
+              playerStateRef.current = yt.PlayerState.UNSTARTED;
+              event.target.mute();
               event.target.setVolume(100);
+
               event.target.setPlaybackQuality("hd720");
               event.target.playVideo();
+
+              clearAutoplayTimeout();
+              autoplayTimeoutRef.current = window.setTimeout(() => {
+                const currentPlayerState = playerStateRef.current;
+                const hasPlaybackStarted =
+                  currentPlayerState === yt.PlayerState.PLAYING || currentPlayerState === yt.PlayerState.BUFFERING;
+
+                if (cancelled || hasPlaybackStarted) return;
+
+                if (!hasReloadedCurrentVideoRef.current) {
+                  hasReloadedCurrentVideoRef.current = true;
+                  setPlayerReloadNonce((prev) => prev + 1);
+                  return;
+                }
+
+                if (shouldAttemptAudibleAutoplay) {
+                  setAudioFallbackMuted(true);
+                  setPlayerReloadNonce((prev) => prev + 1);
+                  return;
+                }
+
+                setUseIframeFallback(true);
+              }, KIOSK_VIDEO_AUTOPLAY_TIMEOUT_MS);
             },
             onStateChange: (event) => {
               if (cancelled) return;
+              playerStateRef.current = event.data;
+
+              if (event.data === yt.PlayerState.PLAYING) {
+                setIsVideoFrameLoaded(true);
+                clearAutoplayTimeout();
+
+                if (shouldAttemptAudibleAutoplay && !hasAttemptedAudioLiftRef.current) {
+                  hasAttemptedAudioLiftRef.current = true;
+                  clearAudioLiftTimeout();
+                  audioLiftTimeoutRef.current = window.setTimeout(() => {
+                    if (cancelled || !youtubePlayerRef.current) return;
+
+                    youtubePlayerRef.current.setVolume(100);
+                    youtubePlayerRef.current.unMute();
+
+                    window.setTimeout(() => {
+                      if (cancelled || !youtubePlayerRef.current) return;
+
+                      const playerStopped =
+                        playerStateRef.current === yt.PlayerState.UNSTARTED ||
+                        playerStateRef.current === yt.PlayerState.PAUSED;
+
+                      if (playerStopped) {
+                        setAudioFallbackMuted(true);
+                        setPlayerReloadNonce((prev) => prev + 1);
+                        return;
+                      }
+
+                      if (youtubePlayerRef.current.isMuted()) {
+                        setAudioFallbackMuted(true);
+                      }
+                    }, 450);
+                  }, 180);
+                }
+              }
+
               if (event.data === yt.PlayerState.ENDED) {
+                clearAutoplayTimeout();
                 goNext();
               }
             },
@@ -758,6 +951,10 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
       .catch(() => {
         if (!cancelled) {
           setIsVideoFrameLoaded(false);
+          if (!audioFallbackMuted) {
+            setAudioFallbackMuted(true);
+          }
+          setUseIframeFallback(true);
         }
       });
 
@@ -765,27 +962,29 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
       cancelled = true;
       destroyPlayer();
     };
-  }, [currentReason.youtubeVideoId, hasYouTubeVideo]);
+  }, [currentReason.youtubeVideoId, goNext, hasYouTubeVideo, playerReloadNonce, useIframeFallback]);
 
   return (
     <SlideIn from="left" delay={0.28} className="flex w-full max-w-[940px] flex-col lg:origin-center lg:scale-[0.86] xl:scale-[0.92] 2xl:scale-100">
       <div className="space-y-4">
         <AnimatePresence mode="wait" initial={false}>
           <motion.article
-            key={hasYouTubeVideo ? "youtube-carousel-panel" : currentReason.id}
+            key={currentReason.id}
             initial={reduceMotion || hasYouTubeVideo ? { opacity: 0 } : { opacity: 0, x: slideDirection * 56, scale: 0.98 }}
             animate={reduceMotion || hasYouTubeVideo ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }}
             exit={reduceMotion || hasYouTubeVideo ? { opacity: 0 } : { opacity: 0, x: slideDirection * -56, scale: 0.98 }}
             transition={reduceMotion || hasYouTubeVideo ? { duration: 0.12 } : { duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             className={`showcase-panel-shell group relative overflow-hidden rounded-[30px] p-4 md:p-5 ${currentTone.surface}`}
             whileHover={
-              reduceMotion || hasYouTubeVideo
+              reduceMotion || hasYouTubeVideo || kioskMode
                 ? undefined
                 : {
                     y: -4,
                     boxShadow: currentTone.hoverShadow,
                   }
             }
+            data-testid="showcase-carousel-panel"
+            data-kiosk-audio-mode={audioFallbackMuted ? "muted" : "audible"}
           >
             <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
             <div
@@ -807,9 +1006,25 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                 >
                   <div
                     id={SHOWCASE_YOUTUBE_PLAYER_HOST_ID}
-                    ref={youtubePlayerHostRef}
                     className="h-full w-full overflow-hidden rounded-[inherit]"
-                  />
+                    ref={useIframeFallback ? undefined : youtubePlayerHostRef}
+                  >
+                    {hasYouTubeVideo && useIframeFallback && currentReason.youtubeVideoId && (
+                      <iframe
+                        key={`${currentReason.id}-${audioFallbackMuted ? "muted" : "audible"}-${kioskMode ? "kiosk" : "standard"}`}
+                        src={buildYouTubeEmbedUrl(currentReason.youtubeVideoId, {
+                          autoplay: true,
+                          muted: audioFallbackMuted,
+                        })}
+                        title={currentReason.hook}
+                        className="h-full w-full rounded-[inherit] border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        allowFullScreen
+                        onLoad={() => setIsVideoFrameLoaded(true)}
+                      />
+                    )}
+                  </div>
                 </div>
                 <img
                   src={currentReason.imageUrl}
@@ -902,7 +1117,7 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
                       type="button"
                       onClick={() => goTo(index)}
                       className={`h-2 rounded-full transition-all ${
-                        index === activeIndex ? "bg-white sm:w-8" : "bg-white/22 hover:bg-white/40 sm:w-4"
+                        index === activeIndex ? "bg-white sm:w-8" : `bg-white/22 ${kioskMode ? "" : "hover:bg-white/40"} sm:w-4`
                       }`}
                       aria-label={`Go to reason ${index + 1}`}
                     />
@@ -918,11 +1133,25 @@ function SonyLiveReasonsPanel({ onVideoFocusChange }: { onVideoFocusChange?: (is
 }
 
 // ─── Phone Mockup ──────────────────────────────────────────────────────────────
-function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal" | "video" }) {
+function PhoneMockup({
+  performanceMode = "normal",
+  kioskMode = false,
+  debugMode = false,
+  bootTimestamp = null,
+}: {
+  performanceMode?: "normal" | "video";
+  kioskMode?: boolean;
+  debugMode?: boolean;
+  bootTimestamp?: string | null;
+}) {
   const commentIndexRef = useRef<number>(INITIAL_VISIBLE_FEED_COMMENTS);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isStoppingStreamRef = useRef(false);
   const selectedDeviceIdRef = useRef<string | null>(null);
+  const autoReconnectRef = useRef<(requestPermission?: boolean) => Promise<boolean>>(async () => false);
+  const retryTimeoutRef = useRef<number | null>(null);
+  const autoConnectAttemptRef = useRef(0);
   const [hearts, setHearts] = useState<HeartParticle[]>([]);
   const [gifts, setGifts] = useState<GiftParticle[]>([]);
   const [compliments, setCompliments] = useState<ComplimentBubble[]>([]);
@@ -939,20 +1168,30 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   const [videoSources, setVideoSources] = useState<VideoSourceOption[]>([]);
   const [hiddenSourceLabels, setHiddenSourceLabels] = useState<string[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  const [isPickerOpen, setIsPickerOpen] = useState(true);
+  const [isPickerOpen, setIsPickerOpen] = useState(() => !kioskMode);
   const [isRefreshingSources, setIsRefreshingSources] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const transientIdRef = useRef(INITIAL_VISIBLE_FEED_COMMENTS);
-  const [showControlPanel, setShowControlPanel] = useState(false);
+  const [showControlPanel, setShowControlPanel] = useState(() => debugMode);
   const [flipHorizontal, setFlipHorizontal] = useState(false);
   const [flipVertical, setFlipVertical] = useState(false);
   const [sourceRotation, setSourceRotation] = useState<number>(90);
   const [frameRotate90, setFrameRotate90] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [lastCameraConnectedAt, setLastCameraConnectedAt] = useState<string | null>(() => readLastCameraConnectedAt());
   const isVideoPerformanceMode = performanceMode === "video";
+  const reduceAmbientEffects = kioskMode || isVideoPerformanceMode;
 
   useEffect(() => {
     selectedDeviceIdRef.current = selectedDeviceId;
   }, [selectedDeviceId]);
+
+  const clearRetryTimeout = useCallback(() => {
+    if (retryTimeoutRef.current) {
+      window.clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+  }, []);
 
   const nextTransientId = useCallback(() => {
     const nextId = transientIdRef.current;
@@ -962,18 +1201,45 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
 
   const stopCurrentStream = useCallback(() => {
     if (streamRef.current) {
+      isStoppingStreamRef.current = true;
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
+      window.setTimeout(() => {
+        isStoppingStreamRef.current = false;
+      }, 0);
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
   }, []);
 
+  const scheduleAutoReconnect = useCallback(
+    (requestPermission = false) => {
+      if (!kioskMode) return;
+
+      clearRetryTimeout();
+
+      autoConnectAttemptRef.current += 1;
+      const attempt = autoConnectAttemptRef.current;
+      setRetryCount(attempt);
+
+      const delay = Math.min(
+        KIOSK_CAMERA_RETRY_BASE_MS + Math.max(0, attempt - 1) * 900,
+        KIOSK_CAMERA_RETRY_MAX_MS,
+      );
+
+      retryTimeoutRef.current = window.setTimeout(() => {
+        void autoReconnectRef.current(requestPermission || attempt <= 2);
+      }, delay);
+    },
+    [clearRetryTimeout, kioskMode],
+  );
+
   const attachStream = useCallback(async (stream: MediaStream, label?: string) => {
     const videoEl = videoRef.current;
     streamRef.current = stream;
-    setCameraLabel(label || stream.getVideoTracks()[0]?.label || "USB Camera");
+    const resolvedLabel = label || stream.getVideoTracks()[0]?.label || "USB Camera";
+    setCameraLabel(resolvedLabel);
 
     if (videoEl) {
       videoEl.srcObject = stream;
@@ -984,8 +1250,31 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       }
     }
 
+    const videoTrack = stream.getVideoTracks()[0];
+    videoTrack?.addEventListener("ended", () => {
+      if (isStoppingStreamRef.current) return;
+
+      setCameraState("fallback");
+      setCameraError(
+        kioskMode
+          ? "Tín hiệu Sony USB Livestream bị ngắt, hệ thống đang tự kết nối lại."
+          : "Tín hiệu camera đã bị ngắt. Hãy chọn lại source camera.",
+      );
+
+      if (kioskMode) {
+        scheduleAutoReconnect(false);
+      } else {
+        setIsPickerOpen(true);
+      }
+    }, { once: true });
+
+    autoConnectAttemptRef.current = 0;
+    setRetryCount(0);
+    setLastCameraConnectedAt(new Date().toISOString());
+    writePreferredCameraPreference(selectedDeviceIdRef.current, resolvedLabel);
+    clearRetryTimeout();
     setCameraState("live");
-  }, []);
+  }, [clearRetryTimeout, kioskMode, scheduleAutoReconnect]);
 
   const refreshVideoSources = useCallback(async (requestPermission = false) => {
     if (!navigator.mediaDevices?.enumerateDevices || !navigator.mediaDevices?.getUserMedia) {
@@ -1014,7 +1303,9 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       setHiddenSourceLabels(hiddenLabels);
 
       if (!visibleOptions.length) {
-        const message = "Không tìm thấy Sony USB Livestream hoặc camera USB khả dụng. Hãy bật USB Streaming trên máy ảnh rồi quét lại.";
+        const message = kioskMode
+          ? "Đang chờ Sony USB Livestream xuất hiện. Hệ thống sẽ tự quét lại."
+          : "Không tìm thấy Sony USB Livestream hoặc camera USB khả dụng. Hãy bật USB Streaming trên máy ảnh rồi quét lại.";
         setSelectedDeviceId(null);
         setPickerError(message);
         setCameraError(message);
@@ -1023,16 +1314,24 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       }
 
       const currentDeviceId = selectedDeviceIdRef.current;
+      const preferredSource = pickPreferredVideoSource(visibleOptions);
       const nextDeviceId =
-        currentDeviceId && visibleOptions.some(option => option.deviceId === currentDeviceId)
+        currentDeviceId && visibleOptions.some((option) => option.deviceId === currentDeviceId)
           ? currentDeviceId
-          : visibleOptions[0].deviceId;
+          : preferredSource?.deviceId ?? visibleOptions[0].deviceId;
 
       if (currentDeviceId && nextDeviceId !== currentDeviceId && streamRef.current) {
         stopCurrentStream();
         setCameraState("fallback");
-        setCameraError("Source trước đó đã đổi hoặc bị ngắt. Hãy chọn lại source camera.");
-        setIsPickerOpen(true);
+        setCameraError(
+          kioskMode
+            ? "Source Sony vừa đổi cổng hoặc bị ngắt. Hệ thống đang tự kết nối lại."
+            : "Source trước đó đã đổi hoặc bị ngắt. Hãy chọn lại source camera.",
+        );
+
+        if (!kioskMode) {
+          setIsPickerOpen(true);
+        }
       }
 
       setSelectedDeviceId(nextDeviceId);
@@ -1054,14 +1353,20 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
     } finally {
       setIsRefreshingSources(false);
     }
-  }, [stopCurrentStream]);
+  }, [kioskMode, stopCurrentStream]);
 
-  const connectSelectedCamera = useCallback(async () => {
-    if (!selectedDeviceId || !navigator.mediaDevices?.getUserMedia) {
+  const connectToDevice = useCallback(async (
+    deviceId: string | null,
+    sourceList: VideoSourceOption[],
+    options: SourceSelectionOptions = {},
+  ) => {
+    if (!deviceId || !navigator.mediaDevices?.getUserMedia) {
       setPickerError("Chưa có source nào được chọn.");
-      return;
+      return false;
     }
 
+    setSelectedDeviceId(deviceId);
+    selectedDeviceIdRef.current = deviceId;
     setCameraState("loading");
     setCameraError(null);
     setPickerError(null);
@@ -1072,14 +1377,15 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           ...CAMERA_BASE_CONSTRAINTS,
-          deviceId: { exact: selectedDeviceId },
+          deviceId: { exact: deviceId },
         },
         audio: false,
       });
 
-      const selectedSource = videoSources.find(option => option.deviceId === selectedDeviceId);
+      const selectedSource = sourceList.find((option) => option.deviceId === deviceId);
       await attachStream(stream, stream.getVideoTracks()[0]?.label || selectedSource?.label);
       setIsPickerOpen(false);
+      return true;
     } catch (error) {
       const message =
         error instanceof DOMException
@@ -1090,9 +1396,55 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       setCameraState("fallback");
       setCameraError(message);
       setPickerError(message);
-      setIsPickerOpen(true);
+      if (options.openPickerOnFailure ?? !kioskMode) {
+        setIsPickerOpen(true);
+      }
+      return false;
     }
-  }, [attachStream, selectedDeviceId, stopCurrentStream, videoSources]);
+  }, [attachStream, kioskMode, stopCurrentStream]);
+
+  const connectSelectedCamera = useCallback(async () => {
+    return connectToDevice(selectedDeviceId, videoSources, { openPickerOnFailure: true });
+  }, [connectToDevice, selectedDeviceId, videoSources]);
+
+  const autoConnectCamera = useCallback(async (requestPermission = false) => {
+    const sources = await refreshVideoSources(requestPermission);
+    if (!sources.length) {
+      scheduleAutoReconnect(requestPermission);
+      return false;
+    }
+
+    const preferredSource = pickPreferredVideoSource(sources);
+    if (!preferredSource) {
+      scheduleAutoReconnect(requestPermission);
+      return false;
+    }
+
+    const currentStreamStillHealthy = Boolean(
+      streamRef.current?.getVideoTracks().some((track) => track.readyState === "live"),
+    );
+
+    if (preferredSource.deviceId === selectedDeviceIdRef.current && currentStreamStillHealthy) {
+      autoConnectAttemptRef.current = 0;
+      setRetryCount(0);
+      clearRetryTimeout();
+      setCameraState("live");
+      return true;
+    }
+
+    const didConnect = await connectToDevice(preferredSource.deviceId, sources, {
+      openPickerOnFailure: debugMode,
+    });
+
+    if (!didConnect) {
+      scheduleAutoReconnect(requestPermission);
+      return false;
+    }
+
+    return true;
+  }, [clearRetryTimeout, connectToDevice, debugMode, refreshVideoSources, scheduleAutoReconnect]);
+
+  autoReconnectRef.current = autoConnectCamera;
 
   const spawnHeart = useCallback(() => {
     const id = nextTransientId();
@@ -1133,8 +1485,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
   }, [nextTransientId]);
 
   const spawnGiftBurst = useCallback(() => {
-    const burstSize = 2 + Math.floor(Math.random() * 3);
-    const burstSpacingMs = 55 + Math.floor(Math.random() * 55);
+    const burstSize = kioskMode ? 1 + Math.floor(Math.random() * 2) : 2 + Math.floor(Math.random() * 3);
+    const burstSpacingMs = kioskMode ? 110 + Math.floor(Math.random() * 70) : 55 + Math.floor(Math.random() * 55);
 
     for (let i = 0; i < burstSize; i += 1) {
       window.setTimeout(() => {
@@ -1142,15 +1494,15 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       }, i * burstSpacingMs);
     }
 
-    setGiftCount(prev => prev + burstSize + Math.floor(Math.random() * 4) + 1);
-  }, [spawnGift]);
+    setGiftCount((prev) => prev + burstSize + Math.floor(Math.random() * (kioskMode ? 2 : 4)) + 1);
+  }, [kioskMode, spawnGift]);
 
   // Auto-spawn hearts
   useEffect(() => {
     if (isVideoPerformanceMode) return;
-    const t = setInterval(spawnHeart, 430);
+    const t = setInterval(spawnHeart, kioskMode ? 960 : 430);
     return () => clearInterval(t);
-  }, [isVideoPerformanceMode, spawnHeart]);
+  }, [isVideoPerformanceMode, kioskMode, spawnHeart]);
 
   // Spawn compliment bubbles
   useEffect(() => {
@@ -1160,57 +1512,58 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       const text = COMPLIMENT_TEXTS[Math.floor(Math.random() * COMPLIMENT_TEXTS.length)];
       const leftPct = 4 + Math.floor(Math.random() * 38);
       setCompliments(prev => [...prev, { id, text, leftPct }]);
-      setTimeout(() => setCompliments(prev => prev.filter(c => c.id !== id)), 2900);
-    }, 2100);
+      setTimeout(() => setCompliments(prev => prev.filter(c => c.id !== id)), kioskMode ? 2400 : 2900);
+    }, kioskMode ? 4200 : 2100);
     return () => clearInterval(t);
-  }, [isVideoPerformanceMode, nextTransientId]);
+  }, [isVideoPerformanceMode, kioskMode, nextTransientId]);
 
   // Viewer count drift up
   useEffect(() => {
     if (isVideoPerformanceMode) return;
     const t = setInterval(() => {
       setViewerCount(prev => prev + Math.floor(Math.random() * 3) + 1);
-    }, 2700);
+    }, kioskMode ? 4200 : 2700);
     return () => clearInterval(t);
-  }, [isVideoPerformanceMode]);
+  }, [isVideoPerformanceMode, kioskMode]);
 
   // Follow count drift up
   useEffect(() => {
     if (isVideoPerformanceMode) return;
     const t = setInterval(() => {
       setFollowCount(prev => prev + Math.floor(Math.random() * 7) + 2);
-    }, 2300);
+    }, kioskMode ? 3600 : 2300);
     return () => clearInterval(t);
-  }, [isVideoPerformanceMode]);
+  }, [isVideoPerformanceMode, kioskMode]);
 
   // Like count drift up
   useEffect(() => {
     if (isVideoPerformanceMode) return;
     const t = setInterval(() => {
       setLikeCount(prev => prev + Math.floor(Math.random() * 9) + 3);
-    }, 1100);
+    }, kioskMode ? 2100 : 1100);
     return () => clearInterval(t);
-  }, [isVideoPerformanceMode]);
+  }, [isVideoPerformanceMode, kioskMode]);
 
   // Gift stream + count drift up
   useEffect(() => {
+    if (isVideoPerformanceMode) return;
     let timeoutId = 0;
     let cancelled = false;
 
     const queueNextBurst = () => {
       timeoutId = window.setTimeout(() => {
         spawnGiftBurst();
-        if (Math.random() > 0.55) {
+        if (Math.random() > (kioskMode ? 0.72 : 0.55)) {
           window.setTimeout(() => {
             spawnGift();
             setGiftCount(prev => prev + 1);
-          }, 90 + Math.floor(Math.random() * 90));
+          }, (kioskMode ? 140 : 90) + Math.floor(Math.random() * 90));
         }
 
         if (!cancelled) {
           queueNextBurst();
         }
-      }, 520 + Math.floor(Math.random() * 360));
+      }, (kioskMode ? 1200 : 520) + Math.floor(Math.random() * (kioskMode ? 460 : 360)));
     };
 
     queueNextBurst();
@@ -1219,10 +1572,11 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [spawnGift, spawnGiftBurst]);
+  }, [isVideoPerformanceMode, kioskMode, spawnGift, spawnGiftBurst]);
 
   // Rotating chat comments praising Sony image quality
   useEffect(() => {
+    if (isVideoPerformanceMode) return;
     let timeoutId = 0;
     let cancelled = false;
 
@@ -1230,16 +1584,16 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       timeoutId = window.setTimeout(() => {
         appendNextFeedComment();
 
-        if (Math.random() > 0.65) {
+        if (Math.random() > (kioskMode ? 0.82 : 0.65)) {
           window.setTimeout(() => {
             appendNextFeedComment();
-          }, 180 + Math.floor(Math.random() * 180));
+          }, (kioskMode ? 260 : 180) + Math.floor(Math.random() * 180));
         }
 
         if (!cancelled) {
           queueNextComment();
         }
-      }, 820 + Math.floor(Math.random() * 520));
+      }, (kioskMode ? 1400 : 820) + Math.floor(Math.random() * (kioskMode ? 700 : 520)));
     };
 
     queueNextComment();
@@ -1248,7 +1602,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [appendNextFeedComment]);
+  }, [appendNextFeedComment, isVideoPerformanceMode, kioskMode]);
 
   useEffect(() => {
     if (!isVideoPerformanceMode) return;
@@ -1258,6 +1612,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
 
   // Hidden control panel toggle (Ctrl/Cmd only)
   useEffect(() => {
+    if (kioskMode && !debugMode) return;
+
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.key === "Control" || event.key === "Meta") && !event.repeat) {
         setShowControlPanel(prev => !prev);
@@ -1266,43 +1622,61 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [debugMode, kioskMode]);
 
   useEffect(() => {
-    void refreshVideoSources(true);
-    setIsPickerOpen(true);
+    if (kioskMode) {
+      setIsPickerOpen(false);
+      void autoConnectCamera(true);
+    } else {
+      void refreshVideoSources(true);
+      setIsPickerOpen(true);
+    }
 
     return () => {
+      clearRetryTimeout();
       stopCurrentStream();
     };
-  }, [refreshVideoSources, stopCurrentStream]);
+  }, [autoConnectCamera, clearRetryTimeout, kioskMode, refreshVideoSources, stopCurrentStream]);
 
   useEffect(() => {
     if (!navigator.mediaDevices?.addEventListener) return;
 
     const handleDeviceChange = () => {
+      if (kioskMode) {
+        void autoConnectCamera(false);
+        return;
+      }
+
       void refreshVideoSources(false);
     };
 
     navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
     return () => navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
-  }, [refreshVideoSources]);
+  }, [autoConnectCamera, kioskMode, refreshVideoSources]);
 
   const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n);
   const sourceTransform = `translate(-50%, -50%) rotate(${sourceRotation}deg) scaleX(${flipHorizontal ? -1 : 1}) scaleY(${flipVertical ? -1 : 1})`;
   const frameTransform = frameRotate90 ? "rotate(90deg) scale(1.78)" : "none";
+  const interactionEnabled = !kioskMode || debugMode;
+  const shouldSurfaceCompactCameraError = cameraState === "fallback" && retryCount >= KIOSK_CAMERA_ERROR_THRESHOLD;
   const cameraBadgeText =
     cameraState === "live"
       ? `${cameraLabel} ● LIVE`
       : cameraState === "loading"
         ? "ĐANG KẾT NỐI CAMERA..."
         : cameraState === "idle"
-          ? "CHỌN SOURCE CAMERA"
+          ? kioskMode
+            ? "ĐANG KHỞI TẠO KIOSK CAMERA"
+            : "CHỌN SOURCE CAMERA"
           : "KHÔNG CÓ TÍN HIỆU CAMERA";
 
   return (
     <motion.div
       className="relative flex-shrink-0 origin-top"
+      data-testid="phone-mockup"
+      data-kiosk-mode={kioskMode ? "true" : "false"}
+      data-debug-mode={debugMode ? "true" : "false"}
       initial={{ opacity: 0, y: 50, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ ...spring.smooth, delay: 0.2 }}
@@ -1315,6 +1689,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
+              data-testid="video-source-picker"
               className="absolute inset-0 z-[140] flex items-start justify-center rounded-[38px] bg-[#04070d]/58 px-5 pb-5 pt-[72px] backdrop-blur-md"
             >
               <motion.div
@@ -1333,8 +1708,9 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                       Chọn camera cho Showcase
                     </h3>
                     <p className="mt-2 text-[11px] leading-relaxed text-white/65">
-                      Mỗi lần truy cập Showcase sẽ hiện hộp chọn này. App đang ưu tiên Sony USB Livestream
-                      và tự ẩn các source ảo dễ gây nhầm.
+                      {kioskMode
+                        ? "Debug mode đang mở picker thủ công. Kiosk vẫn ưu tiên Sony USB Livestream và tự khôi phục source nền."
+                        : "Mỗi lần truy cập Showcase sẽ hiện hộp chọn này. App đang ưu tiên Sony USB Livestream và tự ẩn các source ảo dễ gây nhầm."}
                     </p>
                   </div>
                   <button
@@ -1438,10 +1814,18 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
               exit={{ opacity: 0, x: -280, scale: 0.97 }}
               transition={{ duration: 0.18 }}
               className="fixed left-4 top-1/2 z-[120] w-[260px] -translate-y-1/2 rounded-2xl border border-white/20 bg-black/80 p-3 backdrop-blur-md"
+              data-testid="preview-control-panel"
             >
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-300">Preview Control</p>
-              <p className="mt-1 text-[10px] text-white/55">Toggle panel: Ctrl / Cmd</p>
+              <p className="mt-1 text-[10px] text-white/55">
+                {interactionEnabled ? "Toggle panel: Ctrl / Cmd" : "Kiosk locked"}
+              </p>
               <p className="mt-1 text-[10px] text-white/70">Active source: {cameraLabel}</p>
+              {bootTimestamp && <p className="mt-1 text-[10px] text-white/55">Last boot: {bootTimestamp}</p>}
+              {lastCameraConnectedAt && (
+                <p className="mt-1 text-[10px] text-white/55">Last camera live: {lastCameraConnectedAt}</p>
+              )}
+              {kioskMode && <p className="mt-1 text-[10px] text-white/55">Auto reconnect attempts: {retryCount}</p>}
               <button
                 type="button"
                 onClick={() => setIsPickerOpen(true)}
@@ -1493,9 +1877,9 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
         <div className="pointer-events-none absolute inset-[2px] rounded-[36px] border border-white/7 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(255,255,255,0.04)]" />
         <motion.div
           className="pointer-events-none absolute -left-8 -right-8 top-1 z-10 h-11 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.18),rgba(255,255,255,0.02)_55%,transparent_72%)] blur-md"
-          animate={isVideoPerformanceMode ? undefined : { opacity: [0.32, 0.55, 0.32] }}
-          transition={isVideoPerformanceMode ? undefined : { duration: 4.2, repeat: Infinity, ease: "easeInOut" }}
-          style={isVideoPerformanceMode ? { opacity: 0.24 } : undefined}
+          animate={reduceAmbientEffects ? undefined : { opacity: [0.32, 0.55, 0.32] }}
+          transition={reduceAmbientEffects ? undefined : { duration: 4.2, repeat: Infinity, ease: "easeInOut" }}
+          style={reduceAmbientEffects ? { opacity: 0.24 } : undefined}
         />
 
         <div className="relative h-full w-full overflow-hidden rounded-[36px] border-[6px] border-[#0f1116] bg-[linear-gradient(180deg,#10131a_0%,#080a0f_100%)] shadow-[0_34px_120px_rgba(0,0,0,0.92),0_0_0_1px_rgba(255,255,255,0.08)]">
@@ -1532,7 +1916,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           </div>
 
           {/* Enhanced bokeh particles */}
-          {!isVideoPerformanceMode && ([
+          {!reduceAmbientEffects && ([
             { w:100, h:100, l:'10%', t:'15%', c:'#fbbf24', dur:4.5 },
             { w:70,  h:70,  l:'55%', t:'8%',  c:'#f97316', dur:5.5 },
             { w:120, h:120, l:'2%',  t:'35%', c:'#fcd34d', dur:6.5 },
@@ -1550,7 +1934,7 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
             />
           ))}
 
-          {cameraError && (
+          {(cameraError && (!kioskMode || shouldSurfaceCompactCameraError)) && (
             <div className="pointer-events-none absolute left-4 right-4 top-[86px] rounded-xl border border-amber-300/20 bg-black/45 px-3 py-1.5 backdrop-blur-sm">
               <p className="line-clamp-2 text-[10px] font-medium text-amber-200/90">Camera: {cameraError}</p>
             </div>
@@ -1593,7 +1977,14 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
                 </div>
                 <div className="min-w-0">
                   <div className="text-[12px] font-bold leading-none drop-shadow-lg">@sony.vietnam</div>
-                  <div className="mt-1 text-[10px] text-white/64">{cameraBadgeText}</div>
+                  <div
+                    className="mt-1 text-[10px] text-white/64"
+                    data-testid="camera-badge"
+                    data-camera-state={cameraState}
+                    data-camera-label={cameraLabel}
+                  >
+                    {cameraBadgeText}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1702,8 +2093,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           <div className="flex flex-col items-center gap-1">
             <motion.button
               className="flex h-12 w-12 items-center justify-center rounded-full border border-white/14 bg-[linear-gradient(180deg,rgba(31,37,54,0.92),rgba(12,14,21,0.96))] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
-              whileHover={{ scale:1.2, rotate:5 }}
-              whileTap={{ scale:0.8 }}
+              whileHover={interactionEnabled ? { scale:1.2, rotate:5 } : undefined}
+              whileTap={interactionEnabled ? { scale:0.8 } : undefined}
               onClick={() => {
                 for (let i = 0; i < 7; i++) setTimeout(spawnHeart, i * 75);
                 setLikeCount(p => p + 1);
@@ -1727,8 +2118,8 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
           <div className="flex flex-col items-center gap-1">
             <motion.button
               className="flex h-11 w-11 items-center justify-center rounded-full border border-white/14 bg-[linear-gradient(180deg,rgba(31,37,54,0.92),rgba(12,14,21,0.96))] shadow-[0_18px_40px_rgba(0,0,0,0.32)]"
-              whileHover={{ scale:1.15, rotate:-8 }}
-              whileTap={{ scale:0.85 }}
+              whileHover={interactionEnabled ? { scale:1.15, rotate:-8 } : undefined}
+              whileTap={interactionEnabled ? { scale:0.85 } : undefined}
               onClick={() => {
                 for (let i = 0; i < 4; i++) setTimeout(spawnGift, i * 90);
                 setGiftCount(prev => prev + 2);
@@ -1759,18 +2150,33 @@ function PhoneMockup({ performanceMode = "normal" }: { performanceMode?: "normal
 
 // ─── Main Showcase Page ───────────────────────────────────────────────────────
 export function LivestreamShowcasePage() {
+  const [runtimeFlags] = useState<ShowcaseRuntimeFlags>(() => readShowcaseRuntimeFlags());
   const [isExiting, setIsExiting] = useState(false);
   const [isVideoSlideFocused, setIsVideoSlideFocused] = useState(false);
+  const [bootTimestamp, setBootTimestamp] = useState<string | null>(null);
   const [mainAppSopUrl] = useState(() => buildMainAppUrl("/livestream"));
+  const { kioskMode, debugMode } = runtimeFlags;
+
+  useEffect(() => {
+    if (!kioskMode) return;
+    const now = new Date().toISOString();
+    writeLastBootAt(now);
+    setBootTimestamp(now);
+  }, [kioskMode]);
+
   const exitToSop = useCallback(() => {
+    if (kioskMode) return;
+
     setIsExiting(true);
     setTimeout(() => {
       window.location.assign(mainAppSopUrl);
     }, 260);
-  }, [mainAppSopUrl]);
+  }, [kioskMode, mainAppSopUrl]);
 
   // ESC key handler
   useEffect(() => {
+    if (kioskMode) return;
+
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         exitToSop();
@@ -1779,13 +2185,16 @@ export function LivestreamShowcasePage() {
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [exitToSop]);
+  }, [exitToSop, kioskMode]);
 
   return (
     <AnimatePresence mode="wait">
       {!isExiting && (
         <motion.div
           className="showcase-stage fixed inset-0 overflow-hidden non-critical"
+          data-testid="showcase-root"
+          data-kiosk-mode={kioskMode ? "true" : "false"}
+          data-debug-mode={debugMode ? "true" : "false"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -1793,10 +2202,12 @@ export function LivestreamShowcasePage() {
         >
           <div className="relative h-full w-full">
             <div className="showcase-stage__grain" />
-            <div className="pointer-events-none absolute -left-[18%] top-[52%] z-[1] h-[48rem] w-[48rem] -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(45,193,196,0.22)_0%,rgba(45,193,196,0.06)_36%,transparent_66%)] blur-3xl" />
-            <div className="pointer-events-none absolute right-[-10%] top-[18%] z-[1] h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(144,40,119,0.22)_0%,rgba(144,40,119,0.06)_34%,transparent_70%)] blur-3xl" />
-            <div className="pointer-events-none absolute bottom-[-24%] left-[12%] z-[1] h-[24rem] w-[48rem] rounded-full border border-cyan-200/10 bg-[radial-gradient(ellipse_at_center,rgba(92,247,255,0.12)_0%,rgba(92,247,255,0.02)_40%,transparent_74%)] blur-2xl" />
-            <AsciiRecBackground videoFocused={isVideoSlideFocused} className="absolute inset-0 z-[1] opacity-75" />
+            <div className={`pointer-events-none absolute -left-[18%] top-[52%] z-[1] h-[48rem] w-[48rem] -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(45,193,196,0.22)_0%,rgba(45,193,196,0.06)_36%,transparent_66%)] blur-3xl ${kioskMode ? "opacity-75" : ""}`} />
+            <div className={`pointer-events-none absolute right-[-10%] top-[18%] z-[1] h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(144,40,119,0.22)_0%,rgba(144,40,119,0.06)_34%,transparent_70%)] blur-3xl ${kioskMode ? "opacity-70" : ""}`} />
+            {!kioskMode && (
+              <div className="pointer-events-none absolute bottom-[-24%] left-[12%] z-[1] h-[24rem] w-[48rem] rounded-full border border-cyan-200/10 bg-[radial-gradient(ellipse_at_center,rgba(92,247,255,0.12)_0%,rgba(92,247,255,0.02)_40%,transparent_74%)] blur-2xl" />
+            )}
+            <AsciiRecBackground kioskMode={kioskMode} videoFocused={isVideoSlideFocused} className="absolute inset-0 z-[1] opacity-75" />
 
             <div className="showcase-stage__brand-mark" aria-hidden="true">
               <span>SONY STUDIO</span>
@@ -1807,13 +2218,18 @@ export function LivestreamShowcasePage() {
               <div className="grid h-full w-full grid-cols-1 items-center gap-y-8 lg:grid-cols-[38.2%_61.8%] lg:gap-x-10 xl:gap-x-14 2xl:gap-x-18">
                 <div className="relative flex h-full items-center justify-center overflow-visible lg:justify-end">
                   <div className="showcase-phone-stage relative scale-[0.9] lg:translate-x-[2%] lg:translate-y-[18px] lg:scale-[0.92] xl:-translate-x-[1%] xl:translate-y-[16px] xl:scale-[1]">
-                    <PhoneMockup performanceMode={isVideoSlideFocused ? "video" : "normal"} />
+                    <PhoneMockup
+                      bootTimestamp={bootTimestamp}
+                      kioskMode={kioskMode}
+                      debugMode={debugMode}
+                      performanceMode={isVideoSlideFocused ? "video" : "normal"}
+                    />
                   </div>
                 </div>
                 <div className="relative flex h-full items-center justify-center lg:pr-10 xl:pr-16 2xl:pr-20">
                   <div className="flex h-full w-full items-center justify-center">
                     <div className="w-full max-w-[1020px] lg:translate-x-[3%] xl:translate-x-[5%]">
-                      <SonyLiveReasonsPanel onVideoFocusChange={setIsVideoSlideFocused} />
+                      <SonyLiveReasonsPanel kioskMode={kioskMode} onVideoFocusChange={setIsVideoSlideFocused} />
                     </div>
                   </div>
                 </div>

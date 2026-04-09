@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Sony Showcase Kiosk
+Comment=Autostart Sony Livestream Showcase booth
+Exec=/usr/bin/env bash -lc 'cd __REPO_DIR__ && __REPO_DIR__/scripts/pi/kiosk-launcher.sh'
+Terminal=false
+X-GNOME-Autostart-enabled=true

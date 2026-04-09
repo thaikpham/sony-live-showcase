@@ -1,0 +1,26 @@
+{
+  "device_id": "store-001-kiosk-01",
+  "store_id": "store-001",
+  "hostname": "sony-kiosk-store-001",
+  "install_user": "vdk",
+  "timezone": "Asia/Ho_Chi_Minh",
+  "first_boot": {
+    "enable_ssh": true
+  },
+  "kiosk": {
+    "cloud_url": "https://sony-livestream-showcase.vercel.app/?kiosk=1",
+    "local_url": "http://127.0.0.1:4174/?kiosk=1",
+    "graphics_mode": "auto",
+    "enable_pi_gpu_flags": true,
+    "extra_flags": ""
+  },
+  "update": {
+    "mode": "git",
+    "git_remote": "origin",
+    "git_branch": "main"
+  },
+  "registration": {
+    "endpoint_url": "",
+    "auth_token": ""
+  }
+}

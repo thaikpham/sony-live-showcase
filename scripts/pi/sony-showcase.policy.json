@@ -1,0 +1,13 @@
+{
+  "DefaultMediaStreamSetting": 1,
+  "VideoCaptureAllowedUrls": [
+    "https://sony-livestream-showcase.vercel.app",
+    "http://127.0.0.1:4174",
+    "http://localhost:4174"
+  ],
+  "AudioCaptureAllowedUrls": [
+    "https://sony-livestream-showcase.vercel.app",
+    "http://127.0.0.1:4174",
+    "http://localhost:4174"
+  ]
+}

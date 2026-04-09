@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 interface AsciiRecBackgroundProps {
   videoFocused: boolean;
+  kioskMode?: boolean;
   className?: string;
 }
 
@@ -71,19 +72,26 @@ function bandStrength(value: number, center: number, width: number) {
   return 1 - clamp(Math.abs(value - center) / width, 0, 1);
 }
 
-function pickQualityProfile(width: number, height: number, reducedMotion: boolean, videoFocused: boolean): QualityProfile {
+function pickQualityProfile(
+  width: number,
+  height: number,
+  reducedMotion: boolean,
+  videoFocused: boolean,
+  kioskMode: boolean,
+): QualityProfile {
   const shortestEdge = Math.min(width, height);
   const isMobile = width < 768 || shortestEdge < 560;
   const isTablet = !isMobile && width < 1180;
+  const isConstrainedMode = kioskMode || videoFocused;
 
   if (reducedMotion) {
     return {
       name: isMobile ? "mobile" : isTablet ? "tablet" : "desktop",
-      dprCap: isMobile || isTablet ? 1.25 : 1.5,
+      dprCap: isConstrainedMode ? 1 : isMobile || isTablet ? 1.25 : 1.5,
       fps: 0,
       maxLabels: 0,
-      maxStaticGlyphs: isMobile ? 220 : isTablet ? 300 : 380,
-      cellDensity: isMobile ? 0.22 : isTablet ? 0.24 : 0.26,
+      maxStaticGlyphs: isConstrainedMode ? (isMobile ? 140 : isTablet ? 180 : 220) : isMobile ? 220 : isTablet ? 300 : 380,
+      cellDensity: isConstrainedMode ? (isMobile ? 0.14 : isTablet ? 0.16 : 0.18) : isMobile ? 0.22 : isTablet ? 0.24 : 0.26,
       cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
       cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
       glyphFontSize: isMobile ? 16 : isTablet ? 18 : 20,
@@ -102,24 +110,24 @@ function pickQualityProfile(width: number, height: number, reducedMotion: boolea
 
   return {
     name: isMobile ? "mobile" : isTablet ? "tablet" : "desktop",
-    dprCap: isMobile || isTablet ? 1.25 : 1.5,
-    fps: isMobile || shortestEdge < 720 ? 12 : videoFocused ? 16 : 20,
-    maxLabels: isMobile ? 12 : isTablet ? 20 : 30,
-    maxStaticGlyphs: isMobile ? 280 : isTablet ? 420 : videoFocused ? 540 : 640,
-    cellDensity: videoFocused ? (isMobile ? 0.2 : isTablet ? 0.22 : 0.24) : isMobile ? 0.24 : isTablet ? 0.27 : 0.3,
+    dprCap: kioskMode ? 1 : isMobile || isTablet ? 1.25 : 1.5,
+    fps: kioskMode ? (isMobile ? 8 : 10) : isMobile || shortestEdge < 720 ? 12 : videoFocused ? 16 : 20,
+    maxLabels: kioskMode ? (isMobile ? 4 : isTablet ? 6 : 8) : isMobile ? 12 : isTablet ? 20 : 30,
+    maxStaticGlyphs: kioskMode ? (isMobile ? 150 : isTablet ? 200 : 280) : isMobile ? 280 : isTablet ? 420 : videoFocused ? 540 : 640,
+    cellDensity: kioskMode ? (isMobile ? 0.13 : isTablet ? 0.15 : 0.18) : videoFocused ? (isMobile ? 0.2 : isTablet ? 0.22 : 0.24) : isMobile ? 0.24 : isTablet ? 0.27 : 0.3,
     cellWidth: isMobile ? 74 : isTablet ? 90 : 104,
     cellHeight: isMobile ? 22 : isTablet ? 24 : 26,
     glyphFontSize: isMobile ? 16 : isTablet ? 18 : 20,
     labelFontSize: isMobile ? 24 : isTablet ? 26 : 28,
-    spawnMinMs: videoFocused ? 280 : isMobile ? 220 : 140,
-    spawnMaxMs: videoFocused ? 620 : isMobile ? 520 : 340,
-    labelAlphaMin: videoFocused ? 0.14 : 0.18,
-    labelAlphaMax: videoFocused ? 0.28 : 0.36,
+    spawnMinMs: kioskMode ? 520 : videoFocused ? 280 : isMobile ? 220 : 140,
+    spawnMaxMs: kioskMode ? 980 : videoFocused ? 620 : isMobile ? 520 : 340,
+    labelAlphaMin: kioskMode ? 0.1 : videoFocused ? 0.14 : 0.18,
+    labelAlphaMax: kioskMode ? 0.18 : videoFocused ? 0.28 : 0.36,
     motionEnabled: true,
-    shadowBlur: videoFocused ? 8 : 10,
+    shadowBlur: kioskMode ? 4 : videoFocused ? 8 : 10,
     spacingX: isMobile ? 124 : isTablet ? 146 : 172,
     spacingY: isMobile ? 76 : isTablet ? 88 : 100,
-    initialFillRatio: videoFocused ? 0.74 : 0.88,
+    initialFillRatio: kioskMode ? 0.42 : videoFocused ? 0.74 : 0.88,
   };
 }
 
@@ -272,7 +280,7 @@ function drawLiveRecLabel(
   return true;
 }
 
-export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgroundProps) {
+export function AsciiRecBackground({ videoFocused, kioskMode = false, className }: AsciiRecBackgroundProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -290,7 +298,13 @@ export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgrou
 
     const reducedMotionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
     const labels: LiveRecLabel[] = [];
-    let profile = pickQualityProfile(container.clientWidth, container.clientHeight, reducedMotionMedia.matches, videoFocused);
+    let profile = pickQualityProfile(
+      container.clientWidth,
+      container.clientHeight,
+      reducedMotionMedia.matches,
+      videoFocused,
+      kioskMode,
+    );
     let anchors = buildLabelAnchors(container.clientWidth, container.clientHeight, profile);
     let glyphs = buildStaticGlyphs(container.clientWidth, container.clientHeight, profile);
     let cssWidth = 0;
@@ -325,7 +339,13 @@ export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgrou
     };
 
     const configureScene = () => {
-      profile = pickQualityProfile(container.clientWidth, container.clientHeight, reducedMotionMedia.matches, videoFocused);
+      profile = pickQualityProfile(
+        container.clientWidth,
+        container.clientHeight,
+        reducedMotionMedia.matches,
+        videoFocused,
+        kioskMode,
+      );
       setCanvasSize();
       glyphs = buildStaticGlyphs(cssWidth, cssHeight, profile);
       anchors = buildLabelAnchors(cssWidth, cssHeight, profile);
@@ -525,13 +545,14 @@ export function AsciiRecBackground({ videoFocused, className }: AsciiRecBackgrou
 
       reducedMotionMedia.removeEventListener("change", handleMotionChange);
     };
-  }, [videoFocused]);
+  }, [kioskMode, videoFocused]);
 
   return (
     <div
       ref={containerRef}
       aria-hidden="true"
       data-testid="ascii-rec-background"
+      data-kiosk-mode={kioskMode ? "true" : "false"}
       data-video-focused={videoFocused ? "true" : "false"}
       className={`ascii-rec-bg ${className ?? ""}`.trim()}
     >
