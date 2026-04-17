@@ -210,6 +210,14 @@ const CAMERA_BASE_CONSTRAINTS: MediaTrackConstraints = {
   height: { ideal: 1920 },
   frameRate: { ideal: 30, max: 60 },
 };
+const DEFAULT_CAMERA_FRAME_SIZE = {
+  width: 1920,
+  height: 1080,
+};
+const DEFAULT_PHONE_VIEWPORT_SIZE = {
+  width: 376,
+  height: 812,
+};
 const CONFLICTING_CAMERA_PATTERNS = [
   "imaging edge",
   "imagingedge",
@@ -352,6 +360,32 @@ function buildYouTubeEmbedUrl(videoId: string, { muted, autoplay }: { muted: boo
   });
 
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+}
+
+function normalizeRotation(rotation: number) {
+  return ((rotation % 360) + 360) % 360;
+}
+
+function getFittedVideoFrameSize(
+  viewport: { width: number; height: number },
+  frame: { width: number; height: number },
+  rotation: number,
+) {
+  const normalizedRotation = normalizeRotation(rotation);
+  const isQuarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
+  const rotatedWidth = isQuarterTurn ? frame.height : frame.width;
+  const rotatedHeight = isQuarterTurn ? frame.width : frame.height;
+
+  if (!viewport.width || !viewport.height || !rotatedWidth || !rotatedHeight) {
+    return frame;
+  }
+
+  const scale = Math.min(viewport.width / rotatedWidth, viewport.height / rotatedHeight);
+
+  return {
+    width: frame.width * scale,
+    height: frame.height * scale,
+  };
 }
 
 function isPlaybackStateRunning(playerState: number | null, playerStateMap: YouTubePlayerStateMap) {
@@ -1187,14 +1221,50 @@ function PhoneMockup({
   const [flipVertical, setFlipVertical] = useState(false);
   const [sourceRotation, setSourceRotation] = useState<number>(90);
   const [frameRotate90, setFrameRotate90] = useState(false);
+  const [sourceFrameSize, setSourceFrameSize] = useState<{ width: number; height: number }>(DEFAULT_CAMERA_FRAME_SIZE);
+  const [phoneViewportSize, setPhoneViewportSize] = useState<{ width: number; height: number }>(DEFAULT_PHONE_VIEWPORT_SIZE);
   const [retryCount, setRetryCount] = useState(0);
   const [lastCameraConnectedAt, setLastCameraConnectedAt] = useState<string | null>(() => readLastCameraConnectedAt());
   const isVideoPerformanceMode = performanceMode === "video";
   const reduceAmbientEffects = kioskMode || isVideoPerformanceMode;
+  const phoneViewportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     selectedDeviceIdRef.current = selectedDeviceId;
   }, [selectedDeviceId]);
+
+  useEffect(() => {
+    const viewport = phoneViewportRef.current;
+    if (!viewport) return;
+
+    const syncViewportSize = () => {
+      const nextSize = {
+        width: viewport.clientWidth || DEFAULT_PHONE_VIEWPORT_SIZE.width,
+        height: viewport.clientHeight || DEFAULT_PHONE_VIEWPORT_SIZE.height,
+      };
+
+      setPhoneViewportSize((current) => {
+        if (current.width === nextSize.width && current.height === nextSize.height) {
+          return current;
+        }
+
+        return nextSize;
+      });
+    };
+
+    syncViewportSize();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      syncViewportSize();
+    });
+
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   const clearRetryTimeout = useCallback(() => {
     if (retryTimeoutRef.current) {
@@ -1221,6 +1291,22 @@ function PhoneMockup({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+  }, []);
+
+  const syncVideoFrameSize = useCallback(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl?.videoWidth || !videoEl.videoHeight) return;
+
+    setSourceFrameSize((current) => {
+      if (current.width === videoEl.videoWidth && current.height === videoEl.videoHeight) {
+        return current;
+      }
+
+      return {
+        width: videoEl.videoWidth,
+        height: videoEl.videoHeight,
+      };
+    });
   }, []);
 
   const scheduleAutoReconnect = useCallback(
@@ -1668,6 +1754,7 @@ function PhoneMockup({
   const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n);
   const sourceTransform = `translate(-50%, -50%) rotate(${sourceRotation}deg) scaleX(${flipHorizontal ? -1 : 1}) scaleY(${flipVertical ? -1 : 1})`;
   const frameTransform = frameRotate90 ? "rotate(90deg) scale(1.78)" : "none";
+  const fittedVideoFrameSize = getFittedVideoFrameSize(phoneViewportSize, sourceFrameSize, sourceRotation);
   const interactionEnabled = !kioskMode || debugMode;
   const shouldSurfaceCompactCameraError = cameraState === "fallback" && retryCount >= KIOSK_CAMERA_ERROR_THRESHOLD;
   const cameraBadgeText =
@@ -1900,14 +1987,20 @@ function PhoneMockup({
         <div className="pointer-events-none absolute right-[1px] top-[336px] z-40 h-14 w-[4px] rounded-l-full bg-neutral-400/40" />
 
         {/* ── Camera feed ── */}
-        <div className="absolute inset-0 overflow-hidden">
+        <div ref={phoneViewportRef} className="absolute inset-0 overflow-hidden bg-black">
           <div className="absolute inset-0" style={{ transform: frameTransform, transformOrigin: "center center" }}>
             <video
               ref={videoRef}
-              className={`absolute left-1/2 top-1/2 h-full w-auto min-w-full max-w-none object-cover transition-opacity duration-300 ${
+              className={`absolute left-1/2 top-1/2 max-w-none object-contain transition-opacity duration-300 ${
                 cameraState === "live" ? "opacity-100" : "opacity-0"
               }`}
-              style={{ transform: sourceTransform }}
+              style={{
+                width: `${fittedVideoFrameSize.width}px`,
+                height: `${fittedVideoFrameSize.height}px`,
+                transform: sourceTransform,
+              }}
+              onLoadedData={syncVideoFrameSize}
+              onLoadedMetadata={syncVideoFrameSize}
               autoPlay
               muted
               playsInline
