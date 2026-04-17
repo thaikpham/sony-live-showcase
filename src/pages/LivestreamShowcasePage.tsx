@@ -75,6 +75,10 @@ interface SourceSelectionOptions {
   openPickerOnFailure?: boolean;
 }
 
+type CameraTrackConstraints = MediaTrackConstraints & {
+  resizeMode?: ConstrainDOMString;
+};
+
 interface SonyReason {
   id: number;
   title: string;
@@ -205,18 +209,31 @@ const KIOSK_CAMERA_RETRY_BASE_MS = 1800;
 const KIOSK_CAMERA_RETRY_MAX_MS = 6500;
 const KIOSK_CAMERA_ERROR_THRESHOLD = 3;
 const KIOSK_VIDEO_AUTOPLAY_TIMEOUT_MS = 4200;
-const CAMERA_BASE_CONSTRAINTS: MediaTrackConstraints = {
-  width: { ideal: 1080 },
-  height: { ideal: 1920 },
+const TARGET_CAMERA_VIEWPORT_WIDTH_PX = 1080;
+const TARGET_CAMERA_VIEWPORT_HEIGHT_PX = 1920;
+const TARGET_CAMERA_RAW_WIDTH_PX = TARGET_CAMERA_VIEWPORT_HEIGHT_PX;
+const TARGET_CAMERA_RAW_HEIGHT_PX = TARGET_CAMERA_VIEWPORT_WIDTH_PX;
+const TARGET_CAMERA_RAW_ASPECT_RATIO = TARGET_CAMERA_RAW_WIDTH_PX / TARGET_CAMERA_RAW_HEIGHT_PX;
+const PHONE_SHELL_WIDTH_PX = 376;
+const PHONE_SHELL_BORDER_PX = 6;
+const PHONE_VIEWPORT_ASPECT_RATIO = TARGET_CAMERA_VIEWPORT_WIDTH_PX / TARGET_CAMERA_VIEWPORT_HEIGHT_PX;
+const PHONE_VIEWPORT_WIDTH_PX = PHONE_SHELL_WIDTH_PX - PHONE_SHELL_BORDER_PX * 2;
+const PHONE_VIEWPORT_HEIGHT_PX = PHONE_VIEWPORT_WIDTH_PX / PHONE_VIEWPORT_ASPECT_RATIO;
+const PHONE_SHELL_HEIGHT_PX = PHONE_VIEWPORT_HEIGHT_PX + PHONE_SHELL_BORDER_PX * 2;
+const CAMERA_BASE_CONSTRAINTS: CameraTrackConstraints = {
+  width: { ideal: TARGET_CAMERA_RAW_WIDTH_PX, max: TARGET_CAMERA_RAW_WIDTH_PX },
+  height: { ideal: TARGET_CAMERA_RAW_HEIGHT_PX, max: TARGET_CAMERA_RAW_HEIGHT_PX },
+  aspectRatio: { ideal: TARGET_CAMERA_RAW_ASPECT_RATIO },
   frameRate: { ideal: 30, max: 60 },
+  resizeMode: "crop-and-scale",
 };
 const DEFAULT_CAMERA_FRAME_SIZE = {
-  width: 1920,
-  height: 1080,
+  width: TARGET_CAMERA_RAW_WIDTH_PX,
+  height: TARGET_CAMERA_RAW_HEIGHT_PX,
 };
 const DEFAULT_PHONE_VIEWPORT_SIZE = {
-  width: 376,
-  height: 812,
+  width: PHONE_VIEWPORT_WIDTH_PX,
+  height: PHONE_VIEWPORT_HEIGHT_PX,
 };
 const CONFLICTING_CAMERA_PATTERNS = [
   "imaging edge",
@@ -385,6 +402,13 @@ function getFittedVideoFrameSize(
   return {
     width: frame.width * scale,
     height: frame.height * scale,
+  };
+}
+
+function buildCameraTrackConstraints(deviceId?: string): CameraTrackConstraints {
+  return {
+    ...CAMERA_BASE_CONSTRAINTS,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
   };
 }
 
@@ -1337,6 +1361,15 @@ function PhoneMockup({
     const resolvedLabel = label || stream.getVideoTracks()[0]?.label || "USB Camera";
     setCameraLabel(resolvedLabel);
 
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack?.applyConstraints) {
+      try {
+        await videoTrack.applyConstraints(buildCameraTrackConstraints());
+      } catch {
+        // Some browsers ignore crop-and-scale for USB UVC sources; keep the stream live and fit it in CSS instead.
+      }
+    }
+
     if (videoEl) {
       videoEl.srcObject = stream;
       try {
@@ -1346,7 +1379,6 @@ function PhoneMockup({
       }
     }
 
-    const videoTrack = stream.getVideoTracks()[0];
     videoTrack?.addEventListener("ended", () => {
       if (isStoppingStreamRef.current) return;
 
@@ -1388,7 +1420,10 @@ function PhoneMockup({
 
     try {
       if (requestPermission) {
-        const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        const permissionStream = await navigator.mediaDevices.getUserMedia({
+          video: buildCameraTrackConstraints(),
+          audio: false,
+        });
         permissionStream.getTracks().forEach(track => track.stop());
       }
 
@@ -1471,10 +1506,7 @@ function PhoneMockup({
       stopCurrentStream();
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          ...CAMERA_BASE_CONSTRAINTS,
-          deviceId: { exact: deviceId },
-        },
+        video: buildCameraTrackConstraints(deviceId),
         audio: false,
       });
 
@@ -1779,7 +1811,13 @@ function PhoneMockup({
       transition={{ ...spring.smooth, delay: 0.2 }}
     >
       {/* ── Phone shell ── */}
-      <div className="relative h-[812px] w-[376px]">
+      <div
+        className="relative"
+        style={{
+          width: `${PHONE_SHELL_WIDTH_PX}px`,
+          height: `${PHONE_SHELL_HEIGHT_PX}px`,
+        }}
+      >
         <AnimatePresence>
           {isPickerOpen && (
             <motion.div
